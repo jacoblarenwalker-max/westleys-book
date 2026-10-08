@@ -47,6 +47,9 @@ which is the household-meals look (baby blue band, white cards, beige accents).
   seeded by email) can read or write anything; anyone else who signs in sees “This book is private”.
 - Every `wb_` table has RLS `using/with check private.wb_is_parent()`; anon has no grants. Photos live in the
   **private** bucket `wb-photos` (JPEG only, 5 MB cap) and are shown with 1-hour signed URLs.
+- It shares the `jacoblarenwalker-max.github.io` origin and the Supabase project with the Meals app, so in a
+  regular browser tab you're already signed in if Meals is (and signing out of one signs out of the other there).
+  Home Screen apps on iPhone keep their own sign-in.
 - `config.js` only has the Supabase URL, the publishable key and the VAPID **public** key.
 
 ## Database (`supabase/migrations/`, applied as `wb_schema` and `wb_push_reminders`)

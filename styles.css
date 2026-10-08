@@ -64,6 +64,7 @@ p { margin: 0; }
 .grow { flex: 1; min-width: 0; }
 .stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .stack.tight { gap: 10px; }
+.stack > p.label { font-weight: 650; margin-bottom: -8px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
 .app { max-width: 640px; margin: 0 auto; min-height: 100vh; padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 24px); }

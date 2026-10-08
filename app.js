@@ -1024,9 +1024,9 @@ function renderSettings() {
     seg([['off', 'Off'], ...REMIND.map(([m, l]) => [String(m), l])], f.feed_reminder_enabled ? String(f.feed_reminder_minutes) : 'off',
       (k) => saveFamily(k === 'off' ? { feed_reminder_enabled: false } : { feed_reminder_enabled: true, feed_reminder_minutes: Number(k) })));
   const unitsCard = h('section', { class: 'card stack' }, h('h2', null, 'Units & colors'),
-    seg([['oz', 'oz'], ['ml', 'mL']], f.volume_unit, (k) => saveFamily({ volume_unit: k })),
-    seg([['lb', 'lb · in'], ['kg', 'kg · cm']], f.weight_unit, (k) => saveFamily({ weight_unit: k })),
-    seg([['night', '🌙 Night'], ['day', '☀️ Day']], theme(), (k) => { localStorage.setItem('wb-theme', k); applyTheme(); render(); }));
+    h('p', { class: 'small label' }, 'Bottles'), seg([['oz', 'oz'], ['ml', 'mL']], f.volume_unit, (k) => saveFamily({ volume_unit: k })),
+    h('p', { class: 'small label' }, 'Growth'), seg([['lb', 'lb · in'], ['kg', 'kg · cm']], f.weight_unit, (k) => saveFamily({ weight_unit: k })),
+    h('p', { class: 'small label' }, 'Colors (this phone)'), seg([['night', '🌙 Night'], ['day', '☀️ Day']], theme(), (k) => { localStorage.setItem('wb-theme', k); applyTheme(); render(); }));
   const acct = h('section', { class: 'card stack' }, h('h2', null, 'Account'),
     h('p', { class: 'small muted' }, `Signed in as ${S.parent.display_name} (${S.session.user.email}). Shared with ${S.parents.filter((p) => p.user_id !== S.parent.user_id).map((p) => p.display_name).join(' & ') || 'no one yet'}.`),
     outbox.length ? h('p', { class: 'small' }, `${outbox.length} change${outbox.length === 1 ? '' : 's'} waiting to sync.`) : null,
