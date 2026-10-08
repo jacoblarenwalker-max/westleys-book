@@ -65,7 +65,9 @@ p { margin: 0; }
 .stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .stack.tight { gap: 10px; }
 .stack > p.label { font-weight: 650; margin-bottom: -8px; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+/* grid/flex children may shrink below their content (iOS date inputs otherwise push past the card edge) */
+.grid2 > *, .stack > *, .content > *, label { min-width: 0; }
 
 .app { max-width: 640px; margin: 0 auto; min-height: 100vh; padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 24px); }
 .app.has-dock { padding-bottom: calc(var(--nav-h) + var(--dock-h) + env(safe-area-inset-bottom) + 24px); }
@@ -262,7 +264,20 @@ label .hint { font-weight: 400; color: var(--muted); font-size: .8125rem; }
 input, textarea, select {
   font: inherit; font-size: 16px; color: var(--ink); background: var(--input);
   border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: 12px 14px; width: 100%; min-height: 50px;
+  max-width: 100%; min-width: 0; display: block; margin: 0;
 }
+/* iOS Safari gives date/time inputs a wide built-in minimum size, centered text and a shorter box when empty.
+   Make them plain boxes that match the text inputs exactly: same height, left-aligned, never wider than the card. */
+input[type="date"], input[type="datetime-local"], input[type="time"] {
+  -webkit-appearance: none; appearance: none; height: 50px; line-height: 24px; text-align: left;
+  overflow: hidden; white-space: nowrap;
+}
+input[type="date"]::-webkit-date-and-time-value, input[type="datetime-local"]::-webkit-date-and-time-value, input[type="time"]::-webkit-date-and-time-value {
+  text-align: left; margin: 0; min-height: 24px;
+}
+input::-webkit-datetime-edit { padding: 0; }
+input::-webkit-datetime-edit-fields-wrapper { padding: 0; }
+input[type="number"] { -moz-appearance: textfield; }
 input:focus, textarea:focus { outline: none; border-color: var(--sky-deep); box-shadow: 0 0 0 2px var(--sky); }
 input::placeholder, textarea::placeholder { color: var(--faint); }
 textarea { resize: vertical; min-height: 70px; }
@@ -287,6 +302,27 @@ button.pick:active { background: var(--accent); color: var(--on-accent); }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 0 14px; position: sticky; top: -8px; background: var(--surface); z-index: 1; }
 .sheet-head .icon { color: var(--muted); border-color: var(--line-strong); }
 
+/* install & welcome guide (a stepped bottom sheet) */
+.guide { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.guide-dots { display: flex; justify-content: center; gap: 6px; }
+.guide-dots span { width: 8px; height: 8px; border-radius: 999px; background: var(--line-strong); transition: width var(--t) var(--ease); }
+.guide-dots span.on { width: 22px; background: var(--sky); }
+.guide-hero { display: grid; justify-items: center; text-align: center; gap: 6px; padding: 4px 0 2px; }
+.guide-hero h3 { font-size: 1.375rem; }
+.guide-hero p.muted { max-width: 32ch; }
+.guide-count { font-size: .8125rem; font-weight: 700; color: var(--accent-text); margin-top: 4px; }
+.guide-badge { width: 72px; height: 72px; border-radius: 22px; background: var(--accent); color: var(--on-accent); border: 1px solid var(--sky-edge); display: grid; place-items: center; }
+.guide-badge svg.ico { width: 36px; height: 36px; stroke-width: 1.8; }
+.guide-app { display: grid; justify-items: center; gap: 6px; font-size: .8125rem; font-weight: 650; }
+.guide-app img { width: 76px; height: 76px; border-radius: 18px; display: block; }
+ol.guide-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+ol.guide-steps li { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 12px; align-items: center; background: var(--fill); border: 1px solid var(--line-strong); border-radius: 14px; padding: 10px 12px; line-height: 1.4; }
+.guide-steps .gi { width: 40px; height: 40px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line-strong); color: var(--accent-text); display: grid; place-items: center; }
+.guide-steps .gn { font-weight: 800; font-size: 1.0625rem; }
+.key { display: inline-block; font-weight: 750; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; padding: 0 6px; white-space: nowrap; }
+.guide-nav { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 10px; margin-top: 2px; }
+.guide-nav button { min-height: 56px; }
+
 /* auth */
 .auth { padding: 64px 20px 32px; display: grid; gap: 24px; max-width: 440px; margin: 0 auto; }
 .auth .hero { text-align: center; display: grid; gap: 8px; justify-items: center; }
@@ -298,9 +334,10 @@ button.pick:active { background: var(--accent); color: var(--on-accent); }
 .toast {
   position: fixed; left: 50%; bottom: calc(var(--nav-h) + var(--dock-h) + env(safe-area-inset-bottom) + 14px); z-index: 40;
   transform: translate(-50%, 16px); opacity: 0; pointer-events: none; transition: opacity 160ms var(--ease), transform 160ms var(--ease);
-  background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 14px; font-weight: 650; max-width: calc(100vw - 32px);
+  background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 14px; font-weight: 650; width: max-content; max-width: calc(100vw - 32px);
   display: flex; align-items: center; gap: 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, .25);
 }
+body.sheet-open .toast { bottom: auto; top: calc(env(safe-area-inset-top) + 12px); } /* never cover a form */
 .toast.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
 .toast.error { background: var(--brick); color: #FFFFFF; }
 .toast-action { background: transparent; color: inherit; border: 1.5px solid currentColor; min-height: 36px; padding: 4px 12px; border-radius: 10px; }

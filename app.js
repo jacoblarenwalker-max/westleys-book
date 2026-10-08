@@ -355,6 +355,14 @@ const ICONS = {
   gear: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   moon: '<svg class="ico" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>',
   sun: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  share: '<svg class="ico" viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M8 11H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-2"/></svg>',
+  addhome: '<svg class="ico" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M12 8.5v7M8.5 12h7"/></svg>',
+  compass: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>',
+  key: '<svg class="ico" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+  bell: '<svg class="ico" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>',
+  dots: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="12" cy="19" r="1.3"/></svg>',
+  check: '<svg class="ico" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  phone: '<svg class="ico" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>',
 };
 const icon = (name) => h('span', { class: 'ico-wrap', 'aria-hidden': 'true', html: ICONS[name] });
 const TABS = [['feed', 'Feed'], ['diaper', 'Diapers'], ['sleep', 'Sleep'], ['photos', 'Memories'], ['doctor', 'Doctor']];
@@ -390,7 +398,7 @@ function tabbar(active) {
 function mount(view, { title, sub, main, dock }) {
   appEl.className = 'app' + (dock ? ' has-dock' : '');
   const dockEl = dock ? h('div', { class: 'dock' }, h('div', { class: 'inner' }, dock)) : null;
-  appEl.replaceChildren(topbar(title, sub), h('main', { class: 'content' }, main), dockEl, tabbar(view));
+  appEl.replaceChildren(...[topbar(title, sub), h('main', { class: 'content' }, main), dockEl, tabbar(view)].filter(Boolean)); // (a bare null would render as the text "null")
   // content and toasts clear the dock, whatever its height (one row idle, two rows mid-feed)
   document.documentElement.style.setProperty('--dock-h', `${dockEl ? dockEl.offsetHeight : 0}px`);
   tick();
@@ -458,10 +466,11 @@ function renderAuth(notice) {
   } },
   msg, field('Email', email), field('Password', pw), btn,
   h('p', { class: 'small muted center' }, 'Same email and password as the Meals app.'));
+  const help = isStandalone() ? null : h('button', { type: 'button', class: 'ghost', onclick: () => installGuide() }, icon('phone'), 'How to put it on your phone');
   appEl.className = 'app';
   appEl.replaceChildren(h('main', { class: 'auth' },
     h('div', { class: 'hero' }, h('img', { src: 'icon.svg?v=wb1', alt: '' }), h('h1', null, 'Westley’s Book'), h('p', null, 'Feeds, naps, diapers and little moments, together.')),
-    form));
+    form, help));
 }
 function renderNotParent() {
   appEl.className = 'app';
@@ -1031,7 +1040,10 @@ function renderSettings() {
     h('p', { class: 'small muted' }, `Signed in as ${S.parent.display_name} (${S.session.user.email}). Shared with ${S.parents.filter((p) => p.user_id !== S.parent.user_id).map((p) => p.display_name).join(' & ') || 'no one yet'}.`),
     outbox.length ? h('p', { class: 'small' }, `${outbox.length} change${outbox.length === 1 ? '' : 's'} waiting to sync.`) : null,
     h('button', { class: 'secondary block', onclick: async () => { await forgetPushSub(); await sb.auth.signOut(); location.hash = '#/feed'; } }, 'Sign out'));
-  mount('settings', { title: 'Settings', sub: `${babyName()}’s Book`, main: [babyCard, remindCard, notificationsCard(), unitsCard, acct] });
+  const helpCard = h('section', { class: 'card stack' }, h('h2', null, 'Install & setup'),
+    h('p', { class: 'small muted' }, isStandalone() ? 'You’re using the Home Screen app. Here are the steps if the other phone needs them.' : 'Put Westley on your Home Screen so it opens like an app and can send reminders.'),
+    h('button', { class: 'secondary block', onclick: () => installGuide() }, icon('phone'), 'How to install'));
+  mount('settings', { title: 'Settings', sub: `${babyName()}’s Book`, main: [babyCard, remindCard, notificationsCard(), helpCard, unitsCard, acct] });
 }
 
 /* ---------- Web Push ---------- */
@@ -1112,6 +1124,86 @@ function notificationsCard() {
   return card;
 }
 
+/* ================= install & welcome guide ================= */
+// Shown once on the first visit in a browser tab (never inside the installed Home Screen app); reopen from
+// Settings → Install & setup, or from the sign-in screen.
+const GUIDE_KEY = 'wb-guide-seen';
+const inAppBrowser = () => /CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo|GSA\/|FBAN|FBAV|Instagram|Snapchat|LinkedInApp|Line\/|Pinterest|Twitter/.test(navigator.userAgent);
+const appLink = () => location.origin + location.pathname;
+function installGuide() {
+  try { localStorage.setItem(GUIDE_KEY, '1'); } catch { /* ignore */ }
+  let i = 0;
+  let plat = /Android/i.test(navigator.userAgent) ? 'android' : 'ios';
+  const box = h('div', { class: 'guide' });
+  const step = (ico, html) => h('li', null, h('span', { class: 'gi' }, ico), h('span', null, html));
+  const k = (text) => h('span', { class: 'key' }, text);
+  const STEPS = () => {
+    const ios = plat === 'ios';
+    return [
+      { icon: 'compass', title: ios ? 'Open it in Safari' : 'Open it in Chrome',
+        text: 'It takes about a minute, and then Westley’s Book lives on your Home Screen like any other app.',
+        body: [
+          ios && isIOS() && inAppBrowser() ? h('div', { class: 'msg error' }, 'You’re not in Safari right now. Copy the link, then paste it into Safari.') : null,
+          h('ol', { class: 'guide-steps' },
+            ios ? step(icon('compass'), ['Use ', h('strong', null, 'Safari'), ', not Chrome or the browser inside Messages, Gmail or Instagram.'])
+              : step(icon('compass'), ['Use ', h('strong', null, 'Chrome'), '.']),
+            step(icon('share'), ['Opened it from a text or email? Tap ', k('⋯'), ' or the compass, then ', k(ios ? 'Open in Safari' : 'Open in Chrome'), '.'])),
+          h('button', { type: 'button', class: 'secondary block', onclick: async () => { try { await navigator.clipboard.writeText(appLink()); toast('Link copied'); } catch { toast(appLink()); } } }, 'Copy the link'),
+        ] },
+      { icon: 'key', title: 'Sign in',
+        text: 'Use the same email and password as the Meals app. Each phone signs in once.',
+        body: [h('ol', { class: 'guide-steps' },
+          step(h('span', { class: 'gn' }, '1'), 'Type your Meals app email.'),
+          step(h('span', { class: 'gn' }, '2'), 'Type your Meals app password, then tap Sign in.'))] },
+      ios
+        ? { icon: 'addhome', title: 'Add it to your Home Screen',
+          text: 'Do this in Safari.',
+          body: [h('ol', { class: 'guide-steps' },
+            step(icon('share'), ['Tap ', h('strong', null, 'Share'), ', the square with an arrow. (No Share button? Tap ', k('⋯'), ' first.)']),
+            step(icon('addhome'), ['Scroll down and tap ', k('Add to Home Screen'), '.']),
+            step(icon('check'), ['Tap ', k('Add'), ' in the top corner.']))] }
+        : { icon: 'addhome', title: 'Install the app',
+          text: 'Do this in Chrome.',
+          body: [h('ol', { class: 'guide-steps' },
+            step(icon('dots'), ['Tap the ', k('⋮'), ' menu in the top corner.']),
+            step(icon('addhome'), ['Tap ', k('Install app'), ' or ', k('Add to Home screen'), '.']),
+            step(icon('check'), ['Tap ', k('Install'), '.']))] },
+      { icon: null, title: 'Open Westley from your Home Screen',
+        text: 'Look for the blue W named Westley. It opens full screen, just like an app. You can close the browser tab.',
+        body: [] },
+      { icon: 'bell', title: 'Turn on feeding reminders',
+        text: 'Do this inside the Home Screen app, on each phone.',
+        body: [h('ol', { class: 'guide-steps' },
+          step(icon('gear'), ['Tap the ', h('strong', null, 'gear'), ' at the top right.']),
+          step(icon('bell'), ['Tap ', k('Turn on notifications'), '.']),
+          step(icon('check'), ['Tap ', k('Allow'), '. That’s it 💙']))] },
+    ];
+  };
+  const draw = () => {
+    const all = STEPS(); const s = all[i]; const last = i === all.length - 1;
+    box.replaceChildren(
+      seg([['ios', 'iPhone'], ['android', 'Android']], plat, (v) => { plat = v; draw(); }),
+      h('div', { class: 'guide-dots', 'aria-hidden': 'true' }, all.map((_, n) => h('span', { class: n === i ? 'on' : '' }))),
+      h('div', { class: 'guide-hero' },
+        s.icon ? h('span', { class: 'guide-badge' }, icon(s.icon)) : h('span', { class: 'guide-app' }, h('img', { src: 'icon.svg?v=wb1', alt: '' }), h('span', null, 'Westley')),
+        h('p', { class: 'guide-count' }, `Step ${i + 1} of ${all.length}`),
+        h('h3', null, s.title),
+        h('p', { class: 'muted' }, s.text)),
+      ...s.body.filter(Boolean),
+      h('div', { class: 'guide-nav' },
+        i > 0 ? h('button', { type: 'button', class: 'secondary', onclick: () => { i -= 1; draw(); } }, 'Back') : h('button', { type: 'button', class: 'ghost', onclick: () => closeSheet() }, 'Skip'),
+        h('button', { type: 'button', class: 'big', onclick: () => { if (last) closeSheet(); else { i += 1; draw(); } } }, last ? 'Got it' : 'Next')));
+    box.parentElement?.scrollTo?.(0, 0);
+  };
+  draw();
+  openSheet('Get Westley on your phone', box);
+}
+function maybeShowGuide() {
+  if (isStandalone()) return;
+  try { if (localStorage.getItem(GUIDE_KEY)) return; } catch { return; }
+  installGuide();
+}
+
 /* ================= boot ================= */
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
@@ -1156,5 +1248,6 @@ async function boot() {
   });
   if (S.session) await afterSignIn(); else render();
   booted = true;
+  maybeShowGuide();
 }
 boot();
