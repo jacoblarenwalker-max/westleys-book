@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- maskable: full bleed, art inside the Android safe zone -->
+  <rect width="512" height="512" fill="#4BA3E3"/>
+  <g transform="translate(51 43) scale(.8)">
+    <path d="M256 152c-14-22-52-20-52 10 0 24 34 42 52 56 18-14 52-32 52-56 0-30-38-32-52-10z" fill="#0F2747" transform="translate(8 -10)"/>
+    <path d="M256 152c-14-22-52-20-52 10 0 24 34 42 52 56 18-14 52-32 52-56 0-30-38-32-52-10z" fill="#EADFCC" transform="translate(0 -18)"/>
+    <polyline points="122,214 182,392 256,262 330,392 390,214" fill="none" stroke="#0F2747" stroke-width="58" stroke-linecap="round" stroke-linejoin="round" transform="translate(10 10)"/>
+    <polyline points="122,214 182,392 256,262 330,392 390,214" fill="none" stroke="#FFFFFF" stroke-width="58" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
