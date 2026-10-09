@@ -97,7 +97,7 @@ svg.ico { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-wi
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
   background: var(--surface); border-top: 1px solid var(--line-strong); padding-bottom: env(safe-area-inset-bottom);
 }
-.tabbar .inner { max-width: 640px; margin: 0 auto; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); height: var(--nav-h); }
+.tabbar .inner { max-width: 640px; margin: 0 auto; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); height: var(--nav-h); }
 .tabbar a {
   position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
   text-decoration: none; color: var(--muted); font-size: .72rem; font-weight: 650;
@@ -255,6 +255,38 @@ svg.chart .lab { fill: var(--muted); font-size: 11px; font-family: var(--font); 
 .memory-body { padding: 12px 14px 14px; display: grid; gap: 6px; }
 .memory-date { display: flex; gap: 8px; align-items: center; font-weight: 750; font-size: .9375rem; }
 .caption { white-space: pre-wrap; overflow-wrap: anywhere; }
+.memory-date .chip { flex: none; }
+.memory-by { margin-left: auto; font-size: .8125rem; font-weight: 650; color: var(--muted); white-space: nowrap; }
+.mem-one { cursor: zoom-in; }
+.mem-grid { display: grid; gap: 2px; grid-template-columns: repeat(2, minmax(0, 1fr)); background: var(--line); }
+.mem-grid.n3 { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto auto; }
+.mem-grid.n3 .mem-cell:first-child { grid-row: span 2; aspect-ratio: auto; }
+button.mem-cell { position: relative; display: block; padding: 0; min-height: 0; border: 0; border-radius: 0; background: var(--fill); aspect-ratio: 1; overflow: hidden; cursor: zoom-in; }
+button.mem-cell:active:not(:disabled) { transform: none; opacity: .85; }
+.mem-thumb { display: block; width: 100%; height: 100%; object-fit: cover; }
+.mem-thumb.missing { display: grid; place-items: center; color: var(--muted); font-size: .75rem; height: 100%; }
+.mem-more { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(3, 8, 16, .55); color: #FFFFFF; font-size: 1.5rem; font-weight: 800; }
+/* photo picker in the memory sheet */
+.pick-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.pick-cell { position: relative; aspect-ratio: 1; border-radius: 12px; overflow: hidden; background: var(--fill); border: 1px solid var(--line-strong); }
+.pick-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.pick-img.missing { display: grid; place-items: center; color: var(--muted); font-size: .75rem; text-align: center; padding: 4px; }
+button.pick-x { position: absolute; top: 4px; right: 4px; width: 32px; height: 32px; min-height: 32px; padding: 0; border-radius: 999px;
+  background: rgba(3, 8, 16, .72); color: #FFFFFF; border: 1px solid rgba(255, 255, 255, .35); font-size: .9rem; }
+button.pick-add { aspect-ratio: 1; min-height: 0; flex-direction: column; gap: 2px; border-radius: 12px; padding: 4px;
+  background: var(--fill); color: var(--accent-text); border: 1.5px dashed var(--line-strong); font-size: .8125rem; }
+.pick-plus { font-size: 1.75rem; line-height: 1; font-weight: 700; }
+.progress { height: 8px; border-radius: 999px; background: var(--fill); border: 1px solid var(--line-strong); overflow: hidden; }
+.progress > span { display: block; height: 100%; width: 0; background: var(--sky); transition: width 200ms var(--ease); }
+/* full-screen photo viewer */
+.viewer { position: fixed; inset: 0; z-index: 45; background: #000; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.viewer-bar { display: flex; align-items: center; justify-content: space-between; padding: calc(env(safe-area-inset-top) + 8px) 12px 8px 16px; color: #FFFFFF; }
+.viewer-count { font-weight: 700; font-variant-numeric: tabular-nums; }
+.viewer-strip { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior: contain; scrollbar-width: none; }
+.viewer-strip::-webkit-scrollbar { display: none; }
+.viewer-slide { flex: 0 0 100%; scroll-snap-align: center; display: grid; place-items: center; padding-bottom: env(safe-area-inset-bottom); }
+.viewer-img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.viewer-img.missing { color: #FFFFFF; }
 .preview { border-radius: 14px; overflow: hidden; border: 1px solid var(--line-strong); }
 .preview .memory-photo { max-height: 40vh; object-fit: contain; }
 

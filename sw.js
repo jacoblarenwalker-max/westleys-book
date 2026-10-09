@@ -1,8 +1,8 @@
 // Westley's Book service worker: offline app shell + Web Push.
 // Never caches Supabase API traffic (data stays live and private); only the app's own files and the pinned
 // supabase-js module from jsDelivr.
-const VERSION = 'wb-v3';
-const SHELL = ['./', './index.html', './app.js?v=wb3', './styles.css?v=wb3', './theme.js?v=wb1', './config.js',
+const VERSION = 'wb-v4';
+const SHELL = ['./', './index.html', './app.js?v=wb4', './styles.css?v=wb4', './theme.js?v=wb1', './config.js',
   './manifest.webmanifest?v=wb1', './icon.svg?v=wb1', './icon-192.png?v=wb1', './apple-touch-icon.png?v=wb1', './favicon-32.png?v=wb1'];
 
 self.addEventListener('install', (event) => {

@@ -20,9 +20,10 @@ adds there is prefixed `wb_` / `wb-` and nothing from household-meals was change
   - The running feed is a database row with `ended_at = null`, so it survives closing the app and both phones
     see the same timer. Bottle = amount (oz or mL presets), breast milk or formula, logged instantly.
 - **Diapers**: one tap **Wet / Dirty / Both** (with Undo), last change, today’s counts, edit or add earlier.
-- **Sleep**: one big **Start sleep / Westley woke up** button, awake-since, today’s total and longest stretch.
 - **Memories**: a timeline by month with photos and captions (with “Week 2”-style age tags once the birthday is
-  set). **Add photo** (camera or library; shrunk on the phone to ≤ 2048 px JPEG) or **Write a note**.
+  set) and who saved each one (“by Sophie”). Add up to 10 photos at once (resized on the phone to max 2048 px JPEG
+  before upload, with progress); a memory with several photos shows a small grid, and tapping a photo opens a
+  swipeable full-screen viewer. Editing a memory can add or remove photos.
 - **Meds**: one card per medicine (preloaded: Ibuprofen and Hydrocodone for Sophie every 8h / 4h, Colace every
   evening at 8 PM, Iron every other day at 9 AM, Sophie’s and Westley’s vitamins daily at 9 AM). Each card shows the
   last dose, when the next is due (“Due in 2h 10m” / “Due now” / “Done today”), a big **Took it** button with Undo,
@@ -67,8 +68,8 @@ which is the household-meals look (baby blue band, white cards, beige accents).
 | `wb_family` | one row: `baby_name`, `birth_date`, `feed_reminder_enabled`, `feed_reminder_minutes`, `volume_unit`, `weight_unit` |
 | `wb_feedings` | `started_at`, `ended_at` (null = running), `segments` `[{side: L/R, start, end}]`, `bottle_ml`, `bottle_kind`, `note` |
 | `wb_diapers` | `at`, `kind` (wet/dirty/both/dry), `note` |
-| `wb_sleeps` | `started_at`, `ended_at` (null = asleep), `note` |
-| `wb_memories` | `happened_on`, `caption`, `photo_path` (`<uuid>.jpg` in `wb-photos`) |
+| `wb_sleeps` | `started_at`, `ended_at` (null = asleep), `note`. The Sleep tab was retired Oct 9 2026; the table and its data are kept, the app no longer reads it. |
+| `wb_memories` | `happened_on`, `caption`, `photo_paths` (up to 10 `<uuid>.jpg` in `wb-photos`; `photo_path` = the first one, and older memories only have `photo_path`), `created_by` (the author, set by the server on insert and never changed) |
 | `wb_visits`, `wb_growth` (`weight_g`, `length_cm`, `head_cm`), `wb_vaccines`, `wb_questions` | doctor |
 | `wb_push_subscriptions` | one row per phone (each user sees only their own) |
 | `wb_feed_reminders` | one row per feed that got a reminder (de-dupe + log; no client access) |

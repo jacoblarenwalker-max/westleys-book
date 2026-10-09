@@ -6,11 +6,11 @@ const sb = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
 });
 
 /* ================= state ================= */
-const TABLES = ['wb_feedings', 'wb_diapers', 'wb_sleeps', 'wb_memories', 'wb_visits', 'wb_growth', 'wb_vaccines', 'wb_questions', 'wb_meds', 'wb_med_doses'];
+// (wb_sleeps still exists in the database with its data, but the Sleep tab was retired on Oct 9 2026)
+const TABLES = ['wb_feedings', 'wb_diapers', 'wb_memories', 'wb_visits', 'wb_growth', 'wb_vaccines', 'wb_questions', 'wb_meds', 'wb_med_doses'];
 const SORT = {
   wb_feedings: (a, b) => cmp(b.started_at, a.started_at),
   wb_diapers: (a, b) => cmp(b.at, a.at),
-  wb_sleeps: (a, b) => cmp(b.started_at, a.started_at),
   wb_memories: (a, b) => cmp(b.happened_on, a.happened_on) || cmp(b.created_at, a.created_at),
   wb_visits: (a, b) => cmp(b.visit_date, a.visit_date),
   wb_growth: (a, b) => cmp(b.measured_on, a.measured_on),
@@ -225,7 +225,6 @@ async function fetchTable(t) {
   const since = new Date(now() - 21 * 86400000).toISOString();
   let q = sb.from(t).select('*');
   if (t === 'wb_feedings') q = q.or(`started_at.gte.${since},ended_at.is.null`).order('started_at', { ascending: false }).limit(1000);
-  else if (t === 'wb_sleeps') q = q.or(`started_at.gte.${since},ended_at.is.null`).order('started_at', { ascending: false }).limit(1000);
   else if (t === 'wb_diapers') q = q.gte('at', since).order('at', { ascending: false }).limit(1000);
   else if (t === 'wb_med_doses') q = q.order('taken_at', { ascending: false }).limit(2000);
   else q = q.limit(2000);
@@ -355,7 +354,6 @@ setInterval(() => { if (S.parent && !sheetEl && route() === 'meds' && document.v
 const ICONS = {
   feed: '<svg class="ico" viewBox="0 0 24 24"><path d="M9 3h6M10 3v3l-2 3v10a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V9l-2-3V3"/><path d="M8 13h8"/></svg>',
   diaper: '<svg class="ico" viewBox="0 0 24 24"><path d="M3 7h18v3a9 9 0 0 1-18 0z"/><path d="M8 7v2.5M16 7v2.5"/></svg>',
-  sleep: '<svg class="ico" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>',
   photos: '<svg class="ico" viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>',
   doctor: '<svg class="ico" viewBox="0 0 24 24"><path d="M6 3v6a4 4 0 0 0 8 0V3"/><path d="M10 13v2a5 5 0 0 0 10 0v-2"/><circle cx="20" cy="11" r="2"/></svg>',
   gear: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
@@ -372,7 +370,7 @@ const ICONS = {
   phone: '<svg class="ico" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>',
 };
 const icon = (name) => h('span', { class: 'ico-wrap', 'aria-hidden': 'true', html: ICONS[name] });
-const TABS = [['feed', 'Feed'], ['diaper', 'Diapers'], ['sleep', 'Sleep'], ['meds', 'Meds'], ['photos', 'Memories'], ['doctor', 'Doctor']];
+const TABS = [['feed', 'Feed'], ['diaper', 'Diapers'], ['meds', 'Meds'], ['photos', 'Memories'], ['doctor', 'Doctor']];
 
 function route() {
   const v = location.hash.replace(/^#\/?/, '').split('/')[0];
@@ -420,7 +418,7 @@ function render() {
   if (!S.session) return renderAuth();
   if (!S.parent) return renderNotParent();
   const v = route();
-  ({ feed: renderFeed, diaper: renderDiaper, sleep: renderSleep, meds: renderMeds, photos: renderPhotos, doctor: renderDoctor, settings: renderSettings })[v]();
+  ({ feed: renderFeed, diaper: renderDiaper, meds: renderMeds, photos: renderPhotos, doctor: renderDoctor, settings: renderSettings })[v]();
 }
 appEl.addEventListener('focusout', () => setTimeout(() => { if (renderPending) render(); }, 0));
 
@@ -476,7 +474,7 @@ function renderAuth(notice) {
   const help = isStandalone() ? null : h('button', { type: 'button', class: 'ghost', onclick: () => installGuide() }, icon('phone'), 'How to put it on your phone');
   appEl.className = 'app';
   appEl.replaceChildren(h('main', { class: 'auth' },
-    h('div', { class: 'hero' }, h('img', { src: 'icon.svg?v=wb1', alt: '' }), h('h1', null, 'Westley’s Book'), h('p', null, 'Feeds, naps, diapers and little moments, together.')),
+    h('div', { class: 'hero' }, h('img', { src: 'icon.svg?v=wb1', alt: '' }), h('h1', null, 'Westley’s Book'), h('p', null, 'Feeds, diapers, meds and little moments, together.')),
     form, help));
 }
 function renderNotParent() {
@@ -694,71 +692,6 @@ function diaperSheet(d) {
     isNew ? null : del));
 }
 
-/* ================= Sleep ================= */
-const sleeps = () => S.rows.wb_sleeps;
-const activeSleep = () => sleeps().find((s) => !s.ended_at) || null;
-const sleepMs = (s, at = now()) => Math.max(0, (s.ended_at ? ms(s.ended_at) : at) - ms(s.started_at));
-// minutes of sleep that fall inside today (a nap across midnight only counts its part)
-function sleepToday(s) { const a = Math.max(ms(s.started_at), startOfToday()); const b = s.ended_at ? ms(s.ended_at) : now(); return Math.max(0, b - a); }
-function toggleSleep() {
-  buzz();
-  const a = activeSleep();
-  if (a) {
-    const done = { ...a, ended_at: isoNow() };
-    save('wb_sleeps', done); render();
-    toast(`Slept ${fmtDur(sleepMs(done))}`, false, { label: 'Undo', onClick: () => { save('wb_sleeps', a); render(); } });
-  } else {
-    save('wb_sleeps', { id: uuid(), started_at: isoNow(), ended_at: null, created_by: S.session.user.id }); render();
-  }
-}
-function renderSleep() {
-  const a = activeSleep();
-  const last = sleeps().find((s) => s.ended_at);
-  const name = babyName();
-  const hero = a
-    ? h('section', { class: 'hero-card live sleep' },
-      h('div', { class: 'eyebrow' }, h('span', { class: 'pulse' }), `${name} is sleeping`),
-      h('div', { class: 'big', 'data-since': ms(a.started_at), 'data-mode': 'clock' }, fmtDur(sleepMs(a), { secs: true })),
-      h('p', { class: 'sub' }, `Since ${fmtTime(a.started_at)}`))
-    : h('section', { class: 'hero-card' },
-      h('div', { class: 'eyebrow' }, last ? `${name} has been awake` : 'Sleep'),
-      last ? h('div', { class: 'big', 'data-since': ms(last.ended_at) }, fmtAgo(last.ended_at)) : h('div', { class: 'big small-big' }, 'No naps yet'),
-      h('p', { class: 'sub' }, last ? `Last sleep ${fmtDur(sleepMs(last))} · woke ${fmtTime(last.ended_at)}` : 'Tap below when he falls asleep.'));
-  const today = sleeps().filter((s) => sleepToday(s) > 0);
-  const total = today.reduce((n, s) => n + sleepToday(s), 0);
-  const longest = today.reduce((m, s) => Math.max(m, sleepMs(s)), 0);
-  const totals = h('section', { class: 'card today' }, h('div', { class: 'stats three' }, stat('asleep today', fmtDur(total)), stat('sleeps', today.length), stat('longest', longest ? fmtDur(longest) : '—')));
-  const rows = (xs) => xs.map((s) => h('button', { class: 'logrow', onclick: () => sleepSheet(s) },
-    h('span', { class: 'when' }, fmtTime(s.started_at)), h('span', { class: 'what' }, s.ended_at ? `to ${fmtTime(s.ended_at)}` : 'sleeping…'), h('span', { class: 'dur' }, fmtDur(sleepMs(s)))));
-  const earlier = sleeps().filter((s) => sleepToday(s) === 0 && ms(s.started_at) > now() - 3 * 86400000);
-  const list = h('section', { class: 'card list' },
-    h('div', { class: 'list-head' }, h('h2', null, 'Today'), h('button', { class: 'ghost', onclick: () => sleepSheet(null) }, '+ Add earlier')),
-    today.length ? rows(today) : h('p', { class: 'muted empty' }, 'No sleep logged today.'),
-    [...groupBy(earlier, (s) => fmtDayLabel(s.started_at))].map(([day, xs]) => [h('h3', { class: 'day-head' }, day), rows(xs)]));
-  const dock = h('button', { class: 'stop-btn' + (a ? '' : ' go'), onclick: toggleSleep }, a ? `☀️  ${name} woke up` : '🌙  Start sleep');
-  mount('sleep', { title: 'Sleep', sub: ageText(S.family.birth_date) || `${name}’s Book`, main: [hero, totals, list], dock });
-}
-function sleepSheet(s) {
-  const isNew = !s;
-  const base = s || { id: uuid(), started_at: new Date(now() - 60 * 60000).toISOString(), ended_at: isoNow() };
-  const st = h('input', { type: 'datetime-local', value: toLocalInput(base.started_at) });
-  const en = h('input', { type: 'datetime-local', value: base.ended_at ? toLocalInput(base.ended_at) : '' });
-  const note = h('input', { type: 'text', maxlength: '1000', placeholder: 'Optional', value: base.note || '' });
-  const del = h('button', { type: 'button', class: 'ghost danger block' }, 'Delete sleep');
-  del.addEventListener('click', () => confirmDelete(del, 'sleep', () => { remove('wb_sleeps', base.id); closeSheet(); render(); toast('Deleted', false, { label: 'Undo', onClick: () => { save('wb_sleeps', base); render(); } }); }));
-  openSheet(isNew ? 'Add a sleep' : 'Edit sleep', h('div', { class: 'stack' },
-    field('Fell asleep', st), field('Woke up', en, base.ended_at ? null : 'Leave empty if he’s still asleep.'), field('Note', note),
-    h('button', { class: 'block big', onclick: () => {
-      const a = fromLocalInput(st.value); const b = fromLocalInput(en.value);
-      if (!a) return toast('Pick when he fell asleep.', true);
-      if (b && ms(b) < ms(a)) return toast('Woke up is before fell asleep.', true);
-      if (!b && activeSleep() && activeSleep().id !== base.id) return toast('Another sleep is already running.', true);
-      save('wb_sleeps', { ...base, started_at: a, ended_at: b, note: note.value.trim() || null, ...(isNew ? { created_by: S.session.user.id } : {}) });
-      closeSheet(); render(); toast(isNew ? 'Added' : 'Updated');
-    } }, isNew ? 'Add' : 'Save'),
-    isNew ? null : del));
-}
-
 /* ================= Memories ================= */
 async function decodeImage(file) {
   try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch { /* older Safari: fall back below */ }
@@ -790,55 +723,103 @@ function photoImg(path, cls = 'memory-photo') {
   photoUrl(path).then((u) => { if (u) img.src = u; else img.replaceWith(h('div', { class: `${cls} missing` }, 'Photo unavailable offline')); });
   return img;
 }
-function pickPhoto(onFile) {
-  const input = h('input', { type: 'file', accept: 'image/*', class: 'hidden' });
-  input.addEventListener('change', () => { const f = input.files?.[0]; input.remove(); if (f) onFile(f); });
+const MAX_PHOTOS = 10;
+// a memory's photos: the new photo_paths list, or the original single photo_path (older memories) as a one-item list
+const memPaths = (m) => (Array.isArray(m.photo_paths) && m.photo_paths.length ? m.photo_paths : m.photo_path ? [m.photo_path] : []);
+function pickPhotos(onFiles, max = MAX_PHOTOS) {
+  const input = h('input', { type: 'file', accept: 'image/*', multiple: true, class: 'hidden' });
+  input.addEventListener('change', () => {
+    const files = [...(input.files || [])].filter((f) => !f.type || f.type.startsWith('image/'));
+    input.remove();
+    if (files.length > max) toast(`Up to ${MAX_PHOTOS} photos per memory, so the first ${max} were added.`);
+    if (files.length) onFiles(files.slice(0, max));
+  });
   document.body.append(input); input.click();
+}
+// full-screen photo viewer: swipe sideways between photos, tap ✕ (or Escape) to close
+let viewerEl = null;
+function closeViewer() { if (!viewerEl) return; viewerEl.remove(); viewerEl = null; if (!sheetEl) document.body.classList.remove('sheet-open'); }
+function openViewer(paths, start = 0) {
+  closeViewer();
+  const count = h('span', { class: 'viewer-count' }, paths.length > 1 ? `${start + 1} / ${paths.length}` : '');
+  const strip = h('div', { class: 'viewer-strip' }, paths.map((p) => h('div', { class: 'viewer-slide' }, photoImg(p, 'viewer-img'))));
+  strip.addEventListener('scroll', () => { const k = Math.round(strip.scrollLeft / Math.max(1, strip.clientWidth)); if (paths.length > 1) count.textContent = `${k + 1} / ${paths.length}`; }, { passive: true });
+  viewerEl = h('div', { class: 'viewer', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Photos' },
+    h('div', { class: 'viewer-bar' }, count, h('button', { class: 'icon', 'aria-label': 'Close', onclick: closeViewer }, '✕')), strip);
+  document.body.append(viewerEl); document.body.classList.add('sheet-open');
+  requestAnimationFrame(() => { strip.scrollLeft = start * strip.clientWidth; });
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeViewer(); });
+window.addEventListener('hashchange', closeViewer);
+function memoryPhotos(m) {
+  const paths = memPaths(m);
+  if (!paths.length) return null;
+  if (paths.length === 1) return h('div', { class: 'mem-one', onclick: (e) => { e.stopPropagation(); openViewer(paths, 0); } }, photoImg(paths[0]));
+  const shown = paths.slice(0, 4);
+  return h('div', { class: `mem-grid n${Math.min(paths.length, 4)}` }, shown.map((p, k) => h('button', { type: 'button', class: 'mem-cell', 'aria-label': `Photo ${k + 1} of ${paths.length}`, onclick: (e) => { e.stopPropagation(); openViewer(paths, k); } },
+    photoImg(p, 'mem-thumb'), k === 3 && paths.length > 4 ? h('span', { class: 'mem-more' }, `+${paths.length - 4}`) : null)));
 }
 function renderPhotos() {
   const mems = S.rows.wb_memories;
   const byMonth = groupBy(mems, (m) => fmtDate(m.happened_on, { month: 'long', year: 'numeric' }));
   const main = mems.length
     ? [...byMonth].map(([month, xs]) => h('section', { class: 'timeline' }, h('h2', { class: 'month' }, month),
-      xs.map((m) => h('article', { class: 'memory', onclick: () => memorySheet(m, null) },
-        m.photo_path ? photoImg(m.photo_path) : null,
+      xs.map((m) => { const by = whoName(m.created_by); return h('article', { class: 'memory', onclick: () => memorySheet(m, null) },
+        memoryPhotos(m),
         h('div', { class: 'memory-body' },
-          h('div', { class: 'memory-date' }, fmtDate(m.happened_on, { weekday: 'short', month: 'short', day: 'numeric' }), ageAt(m.happened_on) ? h('span', { class: 'chip' }, ageAt(m.happened_on)) : null),
-          m.caption ? h('p', { class: 'caption' }, m.caption) : null)))))
-    : [h('section', { class: 'hero-card' }, h('div', { class: 'eyebrow' }, 'Memories'), h('div', { class: 'big small-big' }, `${babyName()}’s first moments`), h('p', { class: 'sub' }, 'Add a photo or a little note. Only you two can see them.'))];
+          h('div', { class: 'memory-date' }, h('span', null, fmtDate(m.happened_on, { weekday: 'short', month: 'short', day: 'numeric' })), ageAt(m.happened_on) ? h('span', { class: 'chip' }, ageAt(m.happened_on)) : null, by ? h('span', { class: 'memory-by' }, `by ${by}`) : null),
+          m.caption ? h('p', { class: 'caption' }, m.caption) : null)); })))
+    : [h('section', { class: 'hero-card' }, h('div', { class: 'eyebrow' }, 'Memories'), h('div', { class: 'big small-big' }, `${babyName()}’s first moments`), h('p', { class: 'sub' }, 'Add photos or a little note. Only you two can see them.'))];
   const dock = h('div', { class: 'dock-row two' },
-    h('button', { class: 'side-btn start suggest', onclick: () => pickPhoto((file) => memorySheet(null, file)) }, h('span', { class: 'letter emoji' }, '📷'), h('span', { class: 'lbl' }, 'Add photo')),
+    h('button', { class: 'side-btn start suggest', onclick: () => pickPhotos((files) => memorySheet(null, files)) }, h('span', { class: 'letter emoji' }, '📷'), h('span', { class: 'lbl' }, 'Add photos')),
     h('button', { class: 'side-btn', onclick: () => memorySheet(null, null) }, h('span', { class: 'letter emoji' }, '✎'), h('span', { class: 'lbl' }, 'Write a note')));
   mount('photos', { title: 'Memories', sub: ageText(S.family.birth_date) || `${babyName()}’s Book`, main, dock });
 }
-function memorySheet(m, file) {
+function memorySheet(m, files) {
   const isNew = !m;
-  const base = m || { id: uuid(), happened_on: localDay(), caption: null, photo_path: null };
-  let previewUrl = null;
-  const preview = file ? h('img', { class: 'memory-photo', alt: '' }) : base.photo_path ? photoImg(base.photo_path) : null;
-  if (file) { previewUrl = URL.createObjectURL(file); preview.src = previewUrl; }
+  const base = m || { id: uuid(), happened_on: localDay(), caption: null, photo_path: null, photo_paths: null };
+  // photos in order: existing ones (path) and new ones (file, preview url, path once uploaded)
+  let items = memPaths(base).map((path) => ({ path }));
+  const addFiles = (fs) => { for (const file of fs) if (items.length < MAX_PHOTOS) items.push({ file, url: URL.createObjectURL(file) }); drawGrid(); };
+  const cleanup = () => { for (const it of items) if (it.url) URL.revokeObjectURL(it.url); };
+  const grid = h('div', { class: 'pick-grid' });
+  const drawGrid = () => {
+    grid.replaceChildren(
+      ...items.map((it, k) => h('div', { class: 'pick-cell' },
+        it.file ? h('img', { class: 'pick-img', alt: '', src: it.url }) : photoImg(it.path, 'pick-img'),
+        h('button', { type: 'button', class: 'pick-x', 'aria-label': `Remove photo ${k + 1}`, onclick: () => { if (it.url) URL.revokeObjectURL(it.url); items = items.filter((x) => x !== it); drawGrid(); } }, '✕'))),
+      items.length < MAX_PHOTOS ? h('button', { type: 'button', class: 'pick-add', onclick: () => pickPhotos(addFiles, MAX_PHOTOS - items.length) }, h('span', { class: 'pick-plus' }, '+'), h('span', null, items.length ? 'Add more' : 'Add photos')) : null);
+    count.textContent = items.length ? `${items.length} of ${MAX_PHOTOS} photos` : 'No photos';
+  };
+  const count = h('p', { class: 'small muted' });
+  if (files) addFiles(files); else drawGrid();
   const date = h('input', { type: 'date', value: base.happened_on, max: localDay() });
   const cap = h('textarea', { maxlength: '2000', rows: '3', placeholder: isNew ? 'First smile, first bath, tiny yawns…' : '' }, base.caption || '');
   const status = h('p', { class: 'small muted hidden' });
+  const bar = h('div', { class: 'progress hidden' }, h('span'));
   const btn = h('button', { class: 'block big' }, isNew ? 'Save memory' : 'Save');
-  const cleanup = () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
   btn.addEventListener('click', async () => {
     const caption = cap.value.trim() || null;
-    if (!file && !base.photo_path && !caption) return toast('Write a few words or add a photo.', true);
+    if (!items.length && !caption) return toast('Write a few words or add a photo.', true);
     btn.disabled = true;
+    const todo = items.filter((it) => !it.path);
     try {
-      let photo_path = base.photo_path;
-      if (file) {
-        status.className = 'small muted'; status.textContent = 'Preparing photo…';
-        const blob = await downscaleToJpeg(file);
-        photo_path = `${uuid()}.jpg`;
-        status.textContent = 'Uploading…';
-        const up = await sb.storage.from(PHOTO_BUCKET).upload(photo_path, blob, { contentType: 'image/jpeg', upsert: false, cacheControl: '3600' });
+      let done = 0;
+      const step = (text) => { status.className = 'small muted'; status.textContent = text; bar.classList.remove('hidden'); bar.firstChild.style.width = `${Math.round((done / Math.max(1, todo.length)) * 100)}%`; };
+      for (const it of todo) {
+        step(todo.length > 1 ? `Uploading photo ${done + 1} of ${todo.length}…` : 'Uploading photo…');
+        const blob = await downscaleToJpeg(it.file);
+        const path = `${uuid()}.jpg`;
+        const up = await sb.storage.from(PHOTO_BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false, cacheControl: '3600' });
         if (up.error) throw up.error;
+        it.path = path; done += 1; step(`Uploaded ${done} of ${todo.length}`);
       }
-      save('wb_memories', { ...base, happened_on: date.value || localDay(), caption, photo_path, ...(isNew ? { created_by: S.session.user.id } : {}) });
+      const paths = items.map((it) => it.path);
+      save('wb_memories', { ...base, happened_on: date.value || localDay(), caption, photo_path: paths[0] || null, photo_paths: paths.length ? paths : null, ...(isNew ? { created_by: S.session.user.id, created_at: isoNow() } : {}) });
       cleanup(); closeSheet(); render(); toast(isNew ? 'Memory saved 💙' : 'Saved');
     } catch (err) {
+      // photos that already made it up keep their path, so "Save" again only uploads the rest
+      bar.classList.add('hidden');
       status.className = 'msg error'; status.textContent = isNetworkError(err) ? 'Photos need a connection. Try again in a moment.' : friendlyError(err);
       btn.disabled = false;
     }
@@ -846,13 +827,16 @@ function memorySheet(m, file) {
   const del = h('button', { type: 'button', class: 'ghost danger block' }, 'Delete memory');
   del.addEventListener('click', () => confirmDelete(del, 'memory', async () => {
     remove('wb_memories', base.id);
-    if (base.photo_path) sb.storage.from(PHOTO_BUCKET).remove([base.photo_path]).catch(() => {});
-    closeSheet(); render(); toast('Memory deleted');
+    const gone = memPaths(base);
+    if (gone.length) sb.storage.from(PHOTO_BUCKET).remove(gone).catch(() => {});
+    cleanup(); closeSheet(); render(); toast('Memory deleted');
   }));
+  const by = isNew ? null : whoName(base.created_by);
   openSheet(isNew ? 'New memory' : 'Memory', h('div', { class: 'stack' },
-    preview ? h('div', { class: 'preview' }, preview) : null,
-    !isNew && base.photo_path ? h('button', { type: 'button', class: 'ghost', onclick: async () => { const u = await photoUrl(base.photo_path); if (u) window.open(u, '_blank', 'noopener'); } }, 'Open full size ↗') : null,
-    field('Caption', cap), field('Date', date), status, btn, isNew ? null : del), { onClose: cleanup });
+    grid, count,
+    field('Caption', cap), field('Date', date),
+    by ? h('p', { class: 'small muted' }, `Saved by ${by}`) : null,
+    status, bar, btn, isNew ? null : del), { onClose: cleanup });
 }
 
 /* ================= Doctor ================= */
