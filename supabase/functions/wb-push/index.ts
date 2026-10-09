@@ -2,6 +2,7 @@
 // Callers:
 //   * the database (pg_cron -> private.wb_send_feed_reminders -> pg_net) with header x-wb-secret:
 //       { action: 'feed_reminder', feeding_id }  sends the reminder text stored in wb_feed_reminders
+//       { action: 'med_reminder', med_id, due_at } sends the reminder text stored in wb_med_reminders
 //       { action: 'init' }                         one-time: creates the VAPID key pair inside Vault
 //   * a signed-in parent (Authorization: Bearer <user JWT>): { action: 'test' } sends to their own devices only
 // Secrets (VAPID private key, webhook secret) live in Supabase Vault under wb_ names; nothing secret is in the repo.
@@ -86,6 +87,15 @@ async function feedReminder(feedingId: string) {
   return { status: 200, body: { recipients: subs.length, ...out } };
 }
 
+async function medReminder(medId: string, dueAt: string) {
+  const [r] = await sql`select med_id, title, body, dry_run from public.wb_med_reminders where med_id = ${medId}::uuid and due_at = ${dueAt}::timestamptz`;
+  if (!r) return { status: 404, body: { error: 'no reminder for that med and time' } };
+  const subs = await parentSubs();
+  if (r.dry_run) return { status: 200, body: { dry_run: true, would_send: subs.length, title: r.title, message: r.body } };
+  const out = subs.length ? await deliver(subs, { title: r.title, body: r.body, url: './#/meds', tag: `med-${medId}` }, `med-${medId.slice(0, 20)}`) : { sent: 0, failed: 0, removed: 0 };
+  return { status: 200, body: { recipients: subs.length, ...out } };
+}
+
 async function userFromToken(token: string): Promise<string | null> {
   const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { Authorization: `Bearer ${token}`, apikey: PUBLIC_API_KEY } });
   if (!r.ok) return null;
@@ -105,6 +115,7 @@ Deno.serve(async (req) => {
       if (!expected || !sameSecret(given, expected)) return json(req, 401, { error: 'unauthorized' });
       if (input.action === 'init') return json(req, 200, await initVapid());
       if (input.action === 'feed_reminder' && input.feeding_id) { const r = await feedReminder(String(input.feeding_id)); return json(req, r.status, r.body); }
+      if (input.action === 'med_reminder' && input.med_id && input.due_at) { const r = await medReminder(String(input.med_id), String(input.due_at)); return json(req, r.status, r.body); }
       return json(req, 400, { error: 'unknown action' });
     }
     const token = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');

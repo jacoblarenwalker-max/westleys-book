@@ -6,7 +6,7 @@ const sb = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
 });
 
 /* ================= state ================= */
-const TABLES = ['wb_feedings', 'wb_diapers', 'wb_sleeps', 'wb_memories', 'wb_visits', 'wb_growth', 'wb_vaccines', 'wb_questions'];
+const TABLES = ['wb_feedings', 'wb_diapers', 'wb_sleeps', 'wb_memories', 'wb_visits', 'wb_growth', 'wb_vaccines', 'wb_questions', 'wb_meds', 'wb_med_doses'];
 const SORT = {
   wb_feedings: (a, b) => cmp(b.started_at, a.started_at),
   wb_diapers: (a, b) => cmp(b.at, a.at),
@@ -16,6 +16,8 @@ const SORT = {
   wb_growth: (a, b) => cmp(b.measured_on, a.measured_on),
   wb_vaccines: (a, b) => cmp(b.given_on, a.given_on),
   wb_questions: (a, b) => cmp(a.created_at, b.created_at),
+  wb_meds: (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || cmp(a.created_at, b.created_at),
+  wb_med_doses: (a, b) => cmp(b.taken_at, a.taken_at),
 };
 const DEFAULT_FAMILY = { id: 1, baby_name: 'Westley', birth_date: null, feed_reminder_enabled: true, feed_reminder_minutes: 180, volume_unit: 'oz', weight_unit: 'lb' };
 const S = {
@@ -225,6 +227,7 @@ async function fetchTable(t) {
   if (t === 'wb_feedings') q = q.or(`started_at.gte.${since},ended_at.is.null`).order('started_at', { ascending: false }).limit(1000);
   else if (t === 'wb_sleeps') q = q.or(`started_at.gte.${since},ended_at.is.null`).order('started_at', { ascending: false }).limit(1000);
   else if (t === 'wb_diapers') q = q.gte('at', since).order('at', { ascending: false }).limit(1000);
+  else if (t === 'wb_med_doses') q = q.order('taken_at', { ascending: false }).limit(2000);
   else q = q.limit(2000);
   const { data, error } = await q;
   if (error) throw error;
@@ -292,10 +295,11 @@ const lastSide = (f) => { const b = segs(f).filter((s) => s.side === 'L' || s.si
 const firstSide = (f) => { const b = segs(f).filter((s) => s.side === 'L' || s.side === 'R'); return b.length ? b[0].side : null; };
 const SIDE = { L: 'Left', R: 'Right' };
 function lastFinishedFeed() { return feeds().find((f) => f.ended_at) || null; }
+// Start the next feed on the side the last one ENDED on (bottle-only feeds don't count).
+const lastBreastFeed = () => feeds().find((x) => x.ended_at && lastSide(x)) || null;
 function suggestedSide() {
-  const f = feeds().find((x) => lastSide(x));
-  const s = f ? lastSide(f) : null;
-  return s === 'L' ? 'R' : s === 'R' ? 'L' : null;
+  const f = lastBreastFeed();
+  return f ? lastSide(f) : null;
 }
 function feedSummary(f) {
   const parts = [];
@@ -344,6 +348,8 @@ function tick() {
   }
 }
 setInterval(tick, 1000);
+// the Meds tab's "Due in …" labels move with the clock
+setInterval(() => { if (S.parent && !sheetEl && route() === 'meds' && document.visibilityState === 'visible') render(); }, 30000);
 
 /* ================= shell, routing ================= */
 const ICONS = {
@@ -355,6 +361,7 @@ const ICONS = {
   gear: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   moon: '<svg class="ico" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>',
   sun: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  meds: '<svg class="ico" viewBox="0 0 24 24"><path d="M10.5 20.5l10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7z"/><path d="M8.5 8.5l7 7"/></svg>',
   share: '<svg class="ico" viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M8 11H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-2"/></svg>',
   addhome: '<svg class="ico" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M12 8.5v7M8.5 12h7"/></svg>',
   compass: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>',
@@ -365,7 +372,7 @@ const ICONS = {
   phone: '<svg class="ico" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>',
 };
 const icon = (name) => h('span', { class: 'ico-wrap', 'aria-hidden': 'true', html: ICONS[name] });
-const TABS = [['feed', 'Feed'], ['diaper', 'Diapers'], ['sleep', 'Sleep'], ['photos', 'Memories'], ['doctor', 'Doctor']];
+const TABS = [['feed', 'Feed'], ['diaper', 'Diapers'], ['sleep', 'Sleep'], ['meds', 'Meds'], ['photos', 'Memories'], ['doctor', 'Doctor']];
 
 function route() {
   const v = location.hash.replace(/^#\/?/, '').split('/')[0];
@@ -413,7 +420,7 @@ function render() {
   if (!S.session) return renderAuth();
   if (!S.parent) return renderNotParent();
   const v = route();
-  ({ feed: renderFeed, diaper: renderDiaper, sleep: renderSleep, photos: renderPhotos, doctor: renderDoctor, settings: renderSettings })[v]();
+  ({ feed: renderFeed, diaper: renderDiaper, sleep: renderSleep, meds: renderMeds, photos: renderPhotos, doctor: renderDoctor, settings: renderSettings })[v]();
 }
 appEl.addEventListener('focusout', () => setTimeout(() => { if (renderPending) render(); }, 0));
 
@@ -502,14 +509,14 @@ function renderFeed() {
         ['L', 'R'].map((s) => h('div', { class: 'side' + (cur?.side === s ? ' on' : '') }, h('span', null, SIDE[s]), h('strong', { 'data-side-ms': s }, fmtDur(sideMs(f, s), { secs: true }))))),
       f.bottle_ml != null ? h('p', { class: 'sub' }, `+ bottle ${fmtVol(f.bottle_ml)}`) : null);
   } else if (last) {
-    const ls = lastSide(last);
+    const ls = next;
     hero = h('section', { class: 'hero-card' },
       h('div', { class: 'eyebrow' }, `${name} last ate`),
       h('div', { class: 'big', 'data-since': ms(last.started_at) }, fmtAgo(last.started_at)),
       h('p', { class: 'sub' }, `${fmtTime(last.started_at)} · ${feedSummary(last)}`),
       h('div', { class: 'chips' },
-        ls ? h('span', { class: 'chip side-chip' }, `Last side: ${ls}`) : null,
-        next ? h('span', { class: 'chip next-chip' }, `Next: ${SIDE[next]}`) : null));
+        ls ? h('span', { class: 'chip side-chip' }, `Ended on: ${ls}`) : null,
+        next ? h('span', { class: 'chip next-chip' }, `Start on: ${SIDE[next]}`) : null));
   } else {
     hero = h('section', { class: 'hero-card' },
       h('div', { class: 'eyebrow' }, `Hi, ${name} 💙`),
@@ -553,7 +560,7 @@ function renderFeed() {
   } else {
     dock = h('div', { class: 'dock-row three' },
       ['L', 'R'].map((s) => h('button', { class: 'side-btn start' + (next === s ? ' suggest' : ''), onclick: () => startFeed(s) },
-        h('span', { class: 'letter' }, s), h('span', { class: 'lbl' }, next === s ? `${SIDE[s]} · next` : SIDE[s]))),
+        h('span', { class: 'letter' }, s), h('span', { class: 'lbl' }, next === s ? `Start ${SIDE[s]}` : SIDE[s]))),
       h('button', { class: 'side-btn bottle', onclick: () => bottleSheet(null) }, h('span', { class: 'letter' }, '🍼'), h('span', { class: 'lbl' }, 'Bottle')));
   }
   mount('feed', { title: 'Feeding', sub: ageText(S.family.birth_date) || `${name}’s Book`, main: [hero, totals, list], dock });
@@ -1010,6 +1017,138 @@ function visitSheet(x) {
       save('wb_visits', { ...base, title: title.value.trim() || 'Checkup', visit_date: date.value || localDay(), provider: prov.value.trim() || null, notes: notes.value.trim() || null, ...(isNew ? { created_by: S.session.user.id } : {}) });
       closeSheet(); render();
     } }, isNew ? 'Add visit' : 'Save'),
+    isNew ? null : del));
+}
+
+/* ================= Meds ================= */
+// Schedules: 'interval' = every N hours from the last dose; 'daily' = once a day at remind_at;
+// 'every_other_day' = remind_at two days after the last dose. Mirrors private.wb_med_due_at() in the database,
+// which sends the push reminders (one per due dose, to every parent phone with notifications on).
+const meds = () => S.rows.wb_meds;
+const medDoses = (m) => S.rows.wb_med_doses.filter((d) => d.med_id === m.id);
+const hhmm = (t) => String(t || '09:00').slice(0, 5);
+function atClock(dayMs, t) { const [H, M] = hhmm(t).split(':').map(Number); const d = new Date(dayMs); d.setHours(H, M, 0, 0); return d.getTime(); }
+function dayStart(tsMs, plusDays = 0) { const d = new Date(tsMs); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + plusDays); return d.getTime(); }
+const fmtClock = (t) => new Date(atClock(now(), t)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const fmtHours = (h) => { const n = +h; return n === 1 ? 'hour' : `${+n.toFixed(1)} hours`; };
+function medSchedText(m) {
+  if (m.schedule === 'interval') return `Every ${fmtHours(m.every_hours)}`;
+  if (m.schedule === 'every_other_day') return `Every other day · ${fmtClock(m.remind_at)}`;
+  return `Daily · ${fmtClock(m.remind_at)}`;
+}
+function medDue(m) {
+  const last = medDoses(m)[0]; const lastMs = last ? ms(last.taken_at) : null;
+  if (m.schedule === 'interval') return lastMs == null ? null : lastMs + (+m.every_hours) * 3600000;
+  if (m.schedule === 'every_other_day') return atClock(lastMs == null ? startOfToday() : dayStart(lastMs, 2), m.remind_at);
+  const doneToday = lastMs != null && lastMs >= startOfToday();
+  return atClock(dayStart(now(), doneToday ? 1 : 0), m.remind_at);
+}
+function fmtWhen(tsMs) {
+  const t = new Date(tsMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const d = dayStart(tsMs);
+  if (d === startOfToday()) return t;
+  if (d === dayStart(now(), 1)) return `tomorrow ${t}`;
+  if (d === dayStart(now(), -1)) return `yesterday ${t}`;
+  return `${new Date(tsMs).toLocaleDateString([], { weekday: 'short' })} ${t}`;
+}
+// { state: 'due' | 'soon' | 'done' | 'later' | 'none', label }
+function medStatus(m) {
+  const due = medDue(m); const last = medDoses(m)[0];
+  const takenToday = last && ms(last.taken_at) >= startOfToday();
+  if (due == null) return { state: 'none', label: 'Not taken yet' };
+  if (due <= now()) return { state: 'due', label: 'Due now' };
+  if (m.schedule !== 'interval' && takenToday) return { state: 'done', label: 'Done today' };
+  if (m.schedule === 'every_other_day' && dayStart(due) !== startOfToday()) return { state: 'later', label: dayStart(due) === dayStart(now(), 1) ? 'Tomorrow' : 'Not today' };
+  return { state: 'soon', label: `Due in ${fmtDur(due - now())}` };
+}
+function takeMed(m) {
+  buzz();
+  const row = { id: uuid(), med_id: m.id, taken_at: isoNow(), created_by: S.session.user.id };
+  save('wb_med_doses', row); render();
+  toast(`${m.name} · ${fmtTime(row.taken_at)}`, false, { label: 'Undo', onClick: () => { remove('wb_med_doses', row.id); render(); } });
+}
+const whoName = (uid) => S.parents.find((p) => p.user_id === uid)?.display_name || '';
+function medCard(m) {
+  const st = medStatus(m); const doses = medDoses(m); const last = doses[0]; const due = medDue(m);
+  const lastLine = last ? `Last dose ${fmtWhen(ms(last.taken_at))} · ${fmtAgo(last.taken_at)}` : 'No doses logged yet';
+  const nextLine = due != null && st.state !== 'due' ? `Next ${fmtWhen(due)}` : null;
+  return h('section', { class: `card med med-${st.state}` },
+    h('button', { class: 'med-head', onclick: () => medSheet(m), 'aria-label': `Edit ${m.name}` },
+      h('span', { class: 'med-title' }, h('strong', null, m.name), h('span', { class: 'med-who' }, `${m.for_whom}${m.reminders_on ? '' : ' · reminders off'}`)),
+      h('span', { class: `chip med-chip ${st.state}` }, st.label)),
+    h('p', { class: 'med-meta' }, medSchedText(m), nextLine ? ` · ${nextLine}` : ''),
+    h('p', { class: 'med-meta' }, lastLine),
+    h('div', { class: 'med-actions' },
+      h('button', { class: 'big take' + (st.state === 'due' || st.state === 'none' ? '' : ' secondary'), onclick: () => takeMed(m) }, '✓  Took it'),
+      h('button', { class: 'secondary big more', onclick: () => medSheet(m), 'aria-label': `${m.name} history and settings` }, 'History')),
+    doses.length ? h('p', { class: 'med-hist' }, doses.slice(0, 3).map((d) => fmtWhen(ms(d.taken_at))).join(' · ')) : null);
+}
+function renderMeds() {
+  const list = meds();
+  const dueNow = list.filter((m) => medStatus(m).state === 'due');
+  const intro = h('section', { class: 'hero-card med-hero' },
+    h('div', { class: 'eyebrow' }, 'Medicine'),
+    h('div', { class: 'big small-big' }, dueNow.length ? `${dueNow.length} due now` : 'All caught up'),
+    h('p', { class: 'sub' }, dueNow.length ? dueNow.map((m) => m.name).join(', ') : 'Tap “Took it” after each dose.'));
+  const cards = list.length ? list.map(medCard) : [h('section', { class: 'card' }, h('p', { class: 'muted' }, 'No medicines yet.'))];
+  const add = h('button', { class: 'secondary block big', onclick: () => medSheet(null) }, '+ Add a medicine');
+  const note = h('p', { class: 'small muted center med-note' }, 'Reminders go to every phone with notifications on (Settings).');
+  mount('meds', { title: 'Meds', sub: 'Sophie & Westley', main: [intro, ...cards, add, note] });
+}
+const MED_SCHED = [['interval', 'Every few hours'], ['daily', 'Daily'], ['every_other_day', 'Every other day']];
+function medSheet(m) {
+  const isNew = !m;
+  const base = m || { id: uuid(), name: '', for_whom: 'Sophie', schedule: 'interval', every_hours: 8, remind_at: '09:00', reminders_on: true, sort_order: (meds().reduce((n, x) => Math.max(n, x.sort_order || 0), 0) + 1) };
+  let who = base.for_whom; let sched = base.schedule; let on = base.reminders_on !== false;
+  const name = h('input', { type: 'text', maxlength: '80', placeholder: 'e.g. Ibuprofen', value: base.name || '' });
+  const people = [...new Set(['Sophie', babyName(), ...S.parents.map((p) => p.display_name), who].filter(Boolean))];
+  const hours = h('input', { type: 'number', inputmode: 'decimal', min: '0.5', max: '72', step: '0.5', value: base.every_hours ?? 8 });
+  const time = h('input', { type: 'time', value: hhmm(base.remind_at) });
+  const hourPicks = h('div', { class: 'chip-row' }, [4, 6, 8, 12, 24].map((n) => h('button', { type: 'button', class: 'pick', onclick: () => { hours.value = n; buzz(); } }, `${n}h`)));
+  const intervalBox = h('div', { class: 'stack tight' }, hourPicks, field('Every (hours)', hours, 'Counted from the last dose.'));
+  const timeBox = field('Reminder time', time);
+  const showSched = () => { intervalBox.classList.toggle('hidden', sched !== 'interval'); timeBox.classList.toggle('hidden', sched === 'interval'); };
+  const del = h('button', { type: 'button', class: 'ghost danger block' }, 'Remove medicine');
+  del.addEventListener('click', () => confirmDelete(del, 'medicine', () => { remove('wb_meds', base.id); S.rows.wb_med_doses = S.rows.wb_med_doses.filter((d) => d.med_id !== base.id); saveCache(); closeSheet(); render(); toast('Removed'); }));
+  const doses = isNew ? [] : medDoses(base);
+  const hist = isNew ? null : h('section', { class: 'card list med-hist-list' },
+    h('div', { class: 'list-head' }, h('h2', null, 'History'), h('button', { type: 'button', class: 'ghost', onclick: () => doseSheet(base, null) }, '+ Earlier dose')),
+    doses.length ? doses.slice(0, 30).map((d) => h('button', { type: 'button', class: 'logrow', onclick: () => doseSheet(base, d) },
+      h('span', { class: 'when' }, fmtTime(d.taken_at)), h('span', { class: 'what' }, fmtDayLabel(d.taken_at)), h('span', { class: 'dur' }, whoName(d.created_by))))
+      : h('p', { class: 'muted empty' }, 'No doses yet.'));
+  const body = h('div', { class: 'stack' },
+    hist,
+    field('Name', name),
+    h('p', { class: 'small label' }, 'For'), seg(people.map((p) => [p, p]), who, (k) => { who = k; }),
+    h('p', { class: 'small label' }, 'How often'), seg(MED_SCHED, sched, (k) => { sched = k; showSched(); }),
+    intervalBox, timeBox,
+    h('p', { class: 'small label' }, 'Reminders'), seg([['on', 'On'], ['off', 'Off']], on ? 'on' : 'off', (k) => { on = k === 'on'; }),
+    h('button', { class: 'block big', onclick: () => {
+      const n = name.value.trim(); if (!n) return toast('Name the medicine.', true);
+      const hv = num(hours.value);
+      if (sched === 'interval' && (hv == null || Number.isNaN(hv) || hv < 0.5 || hv > 72)) return toast('Hours should be between 0.5 and 72.', true);
+      if (sched !== 'interval' && !time.value) return toast('Pick a reminder time.', true);
+      save('wb_meds', { ...base, name: n, for_whom: who, schedule: sched, every_hours: sched === 'interval' ? Math.round(hv * 10) / 10 : null, remind_at: sched === 'interval' ? null : time.value, reminders_on: on, ...(isNew ? { created_by: S.session.user.id } : {}) });
+      closeSheet(); render(); toast(isNew ? 'Added' : 'Saved');
+    } }, isNew ? 'Add medicine' : 'Save'),
+    isNew ? null : del);
+  showSched();
+  openSheet(isNew ? 'New medicine' : base.name, body);
+}
+function doseSheet(m, d) {
+  const isNew = !d;
+  const base = d || { id: uuid(), med_id: m.id, taken_at: isoNow() };
+  const at = h('input', { type: 'datetime-local', value: toLocalInput(base.taken_at) });
+  const del = h('button', { type: 'button', class: 'ghost danger block' }, 'Delete dose');
+  del.addEventListener('click', () => confirmDelete(del, 'dose', () => { remove('wb_med_doses', base.id); closeSheet(); render(); toast('Deleted', false, { label: 'Undo', onClick: () => { save('wb_med_doses', base); render(); } }); }));
+  openSheet(isNew ? `Earlier dose · ${m.name}` : `Dose · ${m.name}`, h('div', { class: 'stack' },
+    field('Taken at', at),
+    h('button', { class: 'block big', onclick: () => {
+      const t = fromLocalInput(at.value); if (!t) return toast('Pick a time.', true);
+      if (ms(t) > now() + 5 * 60000) return toast('That time is in the future.', true);
+      save('wb_med_doses', { ...base, taken_at: t, ...(isNew ? { created_by: S.session.user.id } : {}) });
+      closeSheet(); render(); toast(isNew ? 'Added' : 'Updated');
+    } }, isNew ? 'Add dose' : 'Save'),
     isNew ? null : del));
 }
 

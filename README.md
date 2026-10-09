@@ -11,8 +11,9 @@ adds there is prefixed `wb_` / `wb-` and nothing from household-meals was change
 
 ## Screens (bottom tabs, big buttons in thumb reach)
 
-- **Feed** (home): “Westley last ate *2h 14m ago*”, the time, sides and length of that feed, **Last side** and
-  **Next** (the other side). Big **L / R / Bottle** buttons; the suggested side is highlighted. While feeding:
+- **Feed** (home): “Westley last ate *2h 14m ago*”, the time, sides and length of that feed, **Ended on** (the
+  side the last breast feed finished on) and **Start on** (that same side). Big **L / R / Bottle** buttons; the
+  start side is highlighted. While feeding:
   a running clock, per-side clocks, tap the other letter to **switch sides**, **+ Bottle** for a top-up, and a
   big **Stop feeding** (with Undo). Today’s totals (feeds, minutes, left/right minutes, bottle volume), today’s
   list (tap to edit/delete), **+ Add past feed** for forgotten ones, and earlier days on demand.
@@ -22,6 +23,12 @@ adds there is prefixed `wb_` / `wb-` and nothing from household-meals was change
 - **Sleep**: one big **Start sleep / Westley woke up** button, awake-since, today’s total and longest stretch.
 - **Memories**: a timeline by month with photos and captions (with “Week 2”-style age tags once the birthday is
   set). **Add photo** (camera or library; shrunk on the phone to ≤ 2048 px JPEG) or **Write a note**.
+- **Meds**: one card per medicine (preloaded: Ibuprofen and Hydrocodone for Sophie every 8h / 4h, Colace every
+  evening at 8 PM, Iron every other day at 9 AM, Sophie’s and Westley’s vitamins daily at 9 AM). Each card shows the
+  last dose, when the next is due (“Due in 2h 10m” / “Due now” / “Done today”), a big **Took it** button with Undo,
+  and recent doses. Tap a card to edit the name, who it’s for, the schedule, the reminder time, reminders on/off,
+  or fix/add/delete doses. Push reminders: `private.wb_send_med_reminders()` runs every 5 minutes (pg_cron job
+  `wb-med-reminders`) and sends each due dose once (de-duplicated in `wb_med_reminders`) through `wb-push`.
 - **Doctor**: four simple tabs: **Questions** for the next visit (check them off, add the answer),
   **Growth** (weight / length / head with small line charts and change since last time), **Shots**, **Visits**.
 - **Settings** (gear): baby name + birthday (shows his age in the header), feeding reminder
