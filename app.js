@@ -1006,7 +1006,8 @@ function visitSheet(x) {
 
 /* ================= Meds ================= */
 // Schedules: 'interval' = every N hours from the last dose; 'daily' = once a day at remind_at;
-// 'every_other_day' = remind_at two days after the last dose. Mirrors private.wb_med_due_at() in the database,
+// 'every_other_day' = remind_at two days after the last dose; 'twice_daily' = a morning dose at remind_at and a
+// night dose at remind_at2 (a dose taken before the midpoint of the two times counts as the morning one). Mirrors private.wb_med_due_at() in the database,
 // which sends the push reminders (one per due dose, to every parent phone with notifications on).
 const meds = () => S.rows.wb_meds;
 const medDoses = (m) => S.rows.wb_med_doses.filter((d) => d.med_id === m.id);
@@ -1018,10 +1019,23 @@ const fmtHours = (h) => { const n = +h; return n === 1 ? 'hour' : `${+n.toFixed(
 function medSchedText(m) {
   if (m.schedule === 'interval') return `Every ${fmtHours(m.every_hours)}`;
   if (m.schedule === 'every_other_day') return `Every other day · ${fmtClock(m.remind_at)}`;
+  if (m.schedule === 'twice_daily') { const [a, b] = twiceTimes(m); return `Twice daily · ${fmtClock(a)} & ${fmtClock(b)}`; }
   return `Daily · ${fmtClock(m.remind_at)}`;
+}
+const twiceTimes = (m) => [hhmm(m.remind_at), hhmm(m.remind_at2 || '20:00')].sort();
+// today's two slots, which are done, and what's next: { due, slot: 'morning'|'night', mDone, nDone }
+function twiceState(m) {
+  const [a, b] = twiceTimes(m); const t0 = startOfToday();
+  const t1 = atClock(t0, a); const t2 = atClock(t0, b); const mid = t1 + (t2 - t1) / 2;
+  const today = medDoses(m).map((d) => ms(d.taken_at)).filter((t) => t >= t0 && t <= now() + 60000);
+  const mDone = today.some((t) => t < mid); const nDone = today.some((t) => t >= mid);
+  if (nDone) return { due: atClock(dayStart(now(), 1), a), slot: 'morning', mDone, nDone, tomorrow: true };
+  if (mDone || now() >= mid) return { due: t2, slot: 'night', mDone, nDone };
+  return { due: t1, slot: 'morning', mDone, nDone };
 }
 function medDue(m) {
   const last = medDoses(m)[0]; const lastMs = last ? ms(last.taken_at) : null;
+  if (m.schedule === 'twice_daily') return twiceState(m).due;
   if (m.schedule === 'interval') return lastMs == null ? null : lastMs + (+m.every_hours) * 3600000;
   if (m.schedule === 'every_other_day') return atClock(lastMs == null ? startOfToday() : dayStart(lastMs, 2), m.remind_at);
   const doneToday = lastMs != null && lastMs >= startOfToday();
@@ -1040,6 +1054,13 @@ function medStatus(m) {
   const due = medDue(m); const last = medDoses(m)[0];
   const takenToday = last && ms(last.taken_at) >= startOfToday();
   if (due == null) return { state: 'none', label: 'Not taken yet' };
+  if (m.schedule === 'twice_daily') {
+    const t = twiceState(m);
+    if (t.due <= now()) return { state: 'due', label: 'Due now' };
+    if (t.mDone && t.nDone) return { state: 'done', label: 'Done today' };
+    if (t.tomorrow) return { state: 'later', label: 'Tomorrow' };
+    return { state: 'soon', label: `Due at ${fmtClock(new Date(t.due).toTimeString().slice(0, 5))}` };
+  }
   if (due <= now()) return { state: 'due', label: 'Due now' };
   if (m.schedule !== 'interval' && takenToday) return { state: 'done', label: 'Done today' };
   if (m.schedule === 'every_other_day' && dayStart(due) !== startOfToday()) return { state: 'later', label: dayStart(due) === dayStart(now(), 1) ? 'Tomorrow' : 'Not today' };
@@ -1055,13 +1076,16 @@ const whoName = (uid) => S.parents.find((p) => p.user_id === uid)?.display_name 
 function medCard(m) {
   const st = medStatus(m); const doses = medDoses(m); const last = doses[0]; const due = medDue(m);
   const lastLine = last ? `Last dose ${fmtWhen(ms(last.taken_at))} · ${fmtAgo(last.taken_at)}` : 'No doses logged yet';
-  const nextLine = due != null && st.state !== 'due' ? `Next ${fmtWhen(due)}` : null;
+  const tw = m.schedule === 'twice_daily' ? twiceState(m) : null;
+  const nextLine = tw ? `${st.state === 'due' ? 'Now' : 'Next'}: ${tw.slot} dose${st.state === 'due' ? '' : ` ${fmtWhen(due)}`}`
+    : due != null && st.state !== 'due' ? `Next ${fmtWhen(due)}` : null;
   return h('section', { class: `card med med-${st.state}` },
     h('button', { class: 'med-head', onclick: () => medSheet(m), 'aria-label': `Edit ${m.name}` },
       h('span', { class: 'med-title' }, h('strong', null, m.name), h('span', { class: 'med-who' }, `${m.for_whom}${m.reminders_on ? '' : ' · reminders off'}`)),
       h('span', { class: `chip med-chip ${st.state}` }, st.label)),
     h('p', { class: 'med-meta' }, medSchedText(m), nextLine ? ` · ${nextLine}` : ''),
     h('p', { class: 'med-meta' }, lastLine),
+    tw ? h('p', { class: 'med-slots' }, h('span', { class: tw.mDone ? 'ok' : '' }, `${tw.mDone ? '✓' : '○'} Morning`), h('span', { class: tw.nDone ? 'ok' : '' }, `${tw.nDone ? '✓' : '○'} Night`)) : null,
     h('div', { class: 'med-actions' },
       h('button', { class: 'big take' + (st.state === 'due' || st.state === 'none' ? '' : ' secondary'), onclick: () => takeMed(m) }, '✓  Took it'),
       h('button', { class: 'secondary big more', onclick: () => medSheet(m), 'aria-label': `${m.name} history and settings` }, 'History')),
@@ -1079,7 +1103,7 @@ function renderMeds() {
   const note = h('p', { class: 'small muted center med-note' }, 'Reminders go to every phone with notifications on (Settings).');
   mount('meds', { title: 'Meds', sub: 'Sophie & Westley', main: [intro, ...cards, add, note] });
 }
-const MED_SCHED = [['interval', 'Every few hours'], ['daily', 'Daily'], ['every_other_day', 'Every other day']];
+const MED_SCHED = [['interval', 'Every few hours'], ['daily', 'Daily'], ['twice_daily', 'Twice daily'], ['every_other_day', 'Every other day']];
 function medSheet(m) {
   const isNew = !m;
   const base = m || { id: uuid(), name: '', for_whom: 'Sophie', schedule: 'interval', every_hours: 8, remind_at: '09:00', reminders_on: true, sort_order: (meds().reduce((n, x) => Math.max(n, x.sort_order || 0), 0) + 1) };
@@ -1091,7 +1115,12 @@ function medSheet(m) {
   const hourPicks = h('div', { class: 'chip-row' }, [4, 6, 8, 12, 24].map((n) => h('button', { type: 'button', class: 'pick', onclick: () => { hours.value = n; buzz(); } }, `${n}h`)));
   const intervalBox = h('div', { class: 'stack tight' }, hourPicks, field('Every (hours)', hours, 'Counted from the last dose.'));
   const timeBox = field('Reminder time', time);
-  const showSched = () => { intervalBox.classList.toggle('hidden', sched !== 'interval'); timeBox.classList.toggle('hidden', sched === 'interval'); };
+  const twice0 = base.schedule === 'twice_daily';
+  const timeM = h('input', { type: 'time', value: twice0 ? hhmm(base.remind_at) : '08:00' });
+  const timeN = h('input', { type: 'time', value: twice0 ? hhmm(base.remind_at2) : '20:00' });
+  const twiceBox = h('div', { class: 'grid2' }, field('Morning dose', timeM), field('Night dose', timeN));
+  const schedSeg = seg(MED_SCHED, sched, (k) => { sched = k; showSched(); }); schedSeg.classList.add('two-col');
+  const showSched = () => { intervalBox.classList.toggle('hidden', sched !== 'interval'); timeBox.classList.toggle('hidden', sched === 'interval' || sched === 'twice_daily'); twiceBox.classList.toggle('hidden', sched !== 'twice_daily'); };
   const del = h('button', { type: 'button', class: 'ghost danger block' }, 'Remove medicine');
   del.addEventListener('click', () => confirmDelete(del, 'medicine', () => { remove('wb_meds', base.id); S.rows.wb_med_doses = S.rows.wb_med_doses.filter((d) => d.med_id !== base.id); saveCache(); closeSheet(); render(); toast('Removed'); }));
   const doses = isNew ? [] : medDoses(base);
@@ -1104,15 +1133,17 @@ function medSheet(m) {
     hist,
     field('Name', name),
     h('p', { class: 'small label' }, 'For'), seg(people.map((p) => [p, p]), who, (k) => { who = k; }),
-    h('p', { class: 'small label' }, 'How often'), seg(MED_SCHED, sched, (k) => { sched = k; showSched(); }),
-    intervalBox, timeBox,
+    h('p', { class: 'small label' }, 'How often'), schedSeg,
+    intervalBox, timeBox, twiceBox,
     h('p', { class: 'small label' }, 'Reminders'), seg([['on', 'On'], ['off', 'Off']], on ? 'on' : 'off', (k) => { on = k === 'on'; }),
     h('button', { class: 'block big', onclick: () => {
       const n = name.value.trim(); if (!n) return toast('Name the medicine.', true);
       const hv = num(hours.value);
       if (sched === 'interval' && (hv == null || Number.isNaN(hv) || hv < 0.5 || hv > 72)) return toast('Hours should be between 0.5 and 72.', true);
-      if (sched !== 'interval' && !time.value) return toast('Pick a reminder time.', true);
-      save('wb_meds', { ...base, name: n, for_whom: who, schedule: sched, every_hours: sched === 'interval' ? Math.round(hv * 10) / 10 : null, remind_at: sched === 'interval' ? null : time.value, reminders_on: on, ...(isNew ? { created_by: S.session.user.id } : {}) });
+      if (sched === 'twice_daily' && (!timeM.value || !timeN.value)) return toast('Pick both reminder times.', true);
+      if (sched === 'twice_daily' && timeM.value === timeN.value) return toast('Morning and night times must differ.', true);
+      if (sched !== 'interval' && sched !== 'twice_daily' && !time.value) return toast('Pick a reminder time.', true);
+      save('wb_meds', { ...base, name: n, for_whom: who, schedule: sched, every_hours: sched === 'interval' ? Math.round(hv * 10) / 10 : null, remind_at: sched === 'interval' ? null : sched === 'twice_daily' ? timeM.value : time.value, remind_at2: sched === 'twice_daily' ? timeN.value : null, reminders_on: on, ...(isNew ? { created_by: S.session.user.id } : {}) });
       closeSheet(); render(); toast(isNew ? 'Added' : 'Saved');
     } }, isNew ? 'Add medicine' : 'Save'),
     isNew ? null : del);

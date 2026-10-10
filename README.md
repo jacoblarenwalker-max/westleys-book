@@ -24,8 +24,8 @@ adds there is prefixed `wb_` / `wb-` and nothing from household-meals was change
   set) and who saved each one (“by Sophie”). Add up to 10 photos at once (resized on the phone to max 2048 px JPEG
   before upload, with progress); a memory with several photos shows a small grid, and tapping a photo opens a
   swipeable full-screen viewer. Editing a memory can add or remove photos.
-- **Meds**: one card per medicine (preloaded: Ibuprofen and Hydrocodone for Sophie every 8h / 4h, Colace every
-  evening at 8 PM, Iron every other day at 9 AM, Sophie’s and Westley’s vitamins daily at 9 AM). Each card shows the
+- **Meds**: one card per medicine (preloaded: Ibuprofen and Hydrocodone for Sophie every 8h / 4h, Colace twice
+  a day at 8 AM and 8 PM, Iron every other day at 9 AM, Sophie’s and Westley’s vitamins daily at 9 AM). Each card shows the
   last dose, when the next is due (“Due in 2h 10m” / “Due now” / “Done today”), a big **Took it** button with Undo,
   and recent doses. Tap a card to edit the name, who it’s for, the schedule, the reminder time, reminders on/off,
   or fix/add/delete doses. Push reminders: `private.wb_send_med_reminders()` runs every 5 minutes (pg_cron job

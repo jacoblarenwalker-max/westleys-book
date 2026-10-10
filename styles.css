@@ -232,6 +232,7 @@ details.more[open] > summary::before { content: '▾ '; }
 .seg.c2 { grid-template-columns: repeat(2, 1fr); }
 .seg.c3 { grid-template-columns: repeat(3, 1fr); }
 .seg.c4 { grid-template-columns: repeat(4, 1fr); }
+.seg.two-col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .seg.c6 { grid-template-columns: repeat(6, 1fr); }
 .seg.c6 button { font-size: .875rem; padding: 6px 2px; }
 .doc-tabs button { font-size: .875rem; }
@@ -350,6 +351,8 @@ button.med-head:active:not(:disabled) { transform: none; }
 .med-meta { font-size: .875rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .med-actions { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 10px; margin-top: 6px; }
 .med-actions button.big { min-height: 60px; padding: 8px 10px; }
+.med-slots { display: flex; gap: 14px; font-size: .875rem; font-weight: 650; color: var(--muted); }
+.med-slots .ok { color: var(--accent-text); }
 .med-hist { font-size: .8125rem; color: var(--faint); font-variant-numeric: tabular-nums; }
 .med-hist::before { content: 'Recent: '; font-weight: 650; }
 .med-hist-list { padding: 4px 0 6px; background: var(--fill); }
