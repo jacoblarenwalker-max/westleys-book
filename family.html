@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow, noarchive, noimageindex">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#FAFAF8">
+<title>Westley’s First Year</title>
+<link rel="icon" href="icon.svg?v=wb1" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=wb1">
+<style>
+:root{--sky:#4BA3E3;--sky-deep:#1B5E96;--navy:#0F2747;--bg:#FAFAF8;--surface:#fff;--beige:#EADFCC;--line:#ECE4D6;--ink:#1C2A3F;--muted:#505B6B;
+--font:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.45 var(--font);padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+header{background:var(--sky);color:var(--navy);padding:34px 20px 26px;text-align:center;border-bottom:2px solid #2E88CC}
+header .moon{font-size:34px}
+h1{margin:6px 0 2px;font-size:28px;letter-spacing:-.3px}
+header p{margin:0;font-size:15px;opacity:.85}
+main{max-width:640px;margin:0 auto;padding:18px 14px 40px}
+.day{margin:22px 4px 8px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--sky-deep)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:18px;overflow:hidden;margin-bottom:12px}
+.card .txt{padding:14px 16px 4px;white-space:pre-wrap;word-wrap:break-word}
+.card .by{padding:2px 16px 14px;font-size:14px;color:var(--muted)}
+.grid{display:grid;gap:3px;grid-template-columns:repeat(2,1fr)}
+.grid.n1{grid-template-columns:1fr}.grid.n3 img:first-child{grid-column:1/3}
+.grid img{width:100%;aspect-ratio:1;object-fit:cover;display:block;background:var(--beige);cursor:zoom-in}
+.grid.n1 img{aspect-ratio:auto;max-height:520px}
+.grid .more{position:relative}.grid .more span{position:absolute;inset:0;display:grid;place-items:center;background:rgba(15,39,71,.45);color:#fff;font-size:26px;font-weight:700;pointer-events:none}
+.msg{text-align:center;color:var(--muted);padding:60px 20px}
+footer{text-align:center;color:var(--muted);font-size:13px;padding:0 20px 30px}
+#lb{position:fixed;inset:0;background:#06111F;display:none;z-index:9;touch-action:pan-y}
+#lb.on{display:block}#lb img{position:absolute;inset:0;margin:auto;max-width:100%;max-height:100%;object-fit:contain}
+#lb button{position:absolute;background:rgba(255,255,255,.14);color:#fff;border:0;border-radius:99px;width:44px;height:44px;font-size:22px}
+#lb .x{top:calc(12px + env(safe-area-inset-top));right:12px}#lb .p{left:10px;top:50%}#lb .n{right:10px;top:50%}
+#lb .c{position:absolute;bottom:calc(14px + env(safe-area-inset-bottom));width:100%;text-align:center;color:#ccd;font-size:14px}
+</style>
+</head>
+<body>
+<header><div class="moon">🌙</div><h1>Westley’s First Year</h1><p id="sub">Born October 4, 2026</p></header>
+<main id="m"><p class="msg">Loading…</p></main>
+<footer>Made with love by Mom & Dad. Please don’t share this link.</footer>
+<div id="lb" role="dialog" aria-label="Photo"><img alt=""><button class="x" aria-label="Close">✕</button><button class="p" aria-label="Previous">‹</button><button class="n" aria-label="Next">›</button><div class="c"></div></div>
+<script>
+(async () => {
+  const FN = 'https://voydoxmxdnjnewxlwzse.supabase.co/functions/v1/wb-family-feed';
+  const m = document.getElementById('m');
+  const k = new URLSearchParams(location.search).get('k') || '';
+  const msg = (t) => { m.innerHTML = ''; const p = document.createElement('p'); p.className = 'msg'; p.textContent = t; m.append(p); };
+  if (!k) return msg('This page needs the link from Jacob and Sophie.');
+  let d;
+  try { const r = await fetch(FN + '?k=' + encodeURIComponent(k)); if (!r.ok) return msg(r.status === 404 ? 'This link isn’t working anymore. Ask Jacob or Sophie for a new one.' : 'Couldn’t load right now. Try again in a bit.'); d = await r.json(); }
+  catch { return msg('Couldn’t load right now. Check your connection and try again.'); }
+  const born = new Date(d.born + 'T12:00:00');
+  const age = Math.floor((Date.now() - born) / 864e5);
+  document.getElementById('sub').textContent = `Born October 4, 2026 · ${age < 14 ? age + ' days' : age < 60 ? Math.floor(age / 7) + ' weeks' : Math.floor(age / 30.44) + ' months'} old`;
+  if (!d.memories.length) return msg('No memories yet. Check back soon!');
+  m.innerHTML = '';
+  const fmt = (s) => new Date(s + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  const el = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
+  let last = '';
+  for (const mem of d.memories) {
+    if (mem.date !== last) { m.append(el('div', 'day', fmt(mem.date))); last = mem.date; }
+    const c = el('article', 'card');
+    if (mem.photos.length) {
+      const n = mem.photos.length, show = mem.photos.slice(0, 4);
+      const g = el('div', 'grid n' + Math.min(n, 4));
+      show.forEach((u, i) => {
+        const img = el('img'); img.src = u; img.loading = 'lazy'; img.alt = 'Photo of Westley';
+        img.onclick = () => open(mem.photos, i, mem.text);
+        if (i === 3 && n > 4) { const w = el('div', 'more'); w.append(img, el('span', null, '+' + (n - 4))); g.append(w); } else g.append(img);
+      });
+      c.append(g);
+    }
+    if (mem.text) c.append(el('div', 'txt', mem.text));
+    c.append(el('div', 'by', mem.author ? '— ' + mem.author : ''));
+    m.append(c);
+  }
+  const lb = document.getElementById('lb'), li = lb.querySelector('img'), lc = lb.querySelector('.c');
+  let L = [], I = 0, x0 = null;
+  const show = () => { li.src = L[I]; lc.textContent = L.length > 1 ? `${I + 1} of ${L.length}` : ''; lb.querySelector('.p').style.display = lb.querySelector('.n').style.display = L.length > 1 ? '' : 'none'; };
+  function open(list, i) { L = list; I = i; show(); lb.classList.add('on'); }
+  const step = (s) => { I = (I + s + L.length) % L.length; show(); };
+  lb.querySelector('.x').onclick = () => lb.classList.remove('on');
+  lb.querySelector('.p').onclick = () => step(-1); lb.querySelector('.n').onclick = () => step(1);
+  lb.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+  lb.addEventListener('touchend', (e) => { if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0; x0 = null; if (Math.abs(dx) > 40) step(dx < 0 ? 1 : -1); });
+  document.addEventListener('keydown', (e) => { if (!lb.classList.contains('on')) return; if (e.key === 'Escape') lb.classList.remove('on'); if (e.key === 'ArrowLeft') step(-1); if (e.key === 'ArrowRight') step(1); });
+})();
+</script>
+</body>
+</html>

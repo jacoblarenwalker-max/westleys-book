@@ -1197,7 +1197,20 @@ function renderSettings() {
   const helpCard = h('section', { class: 'card stack' }, h('h2', null, 'Install & setup'),
     h('p', { class: 'small muted' }, isStandalone() ? 'You’re using the Home Screen app. Here are the steps if the other phone needs them.' : 'Put Westley on your Home Screen so it opens like an app and can send reminders.'),
     h('button', { class: 'secondary block', onclick: () => installGuide() }, icon('phone'), 'How to install'));
-  mount('settings', { title: 'Settings', sub: `${babyName()}’s Book`, main: [babyCard, remindCard, notificationsCard(), helpCard, unitsCard, acct] });
+  mount('settings', { title: 'Settings', sub: `${babyName()}’s Book`, main: [babyCard, remindCard, notificationsCard(), familyLinkCard(), helpCard, unitsCard, acct] });
+}
+
+// Grandparents link: a read-only page with Memories only (date, words, photos, who wrote it).
+function familyLinkCard() {
+  const url = (t) => new URL(`family.html?k=${t}`, location.href.split('#')[0].replace(/[^/]*$/, '')).href;
+  const box = h('input', { type: 'text', readonly: '', value: 'Loading…', 'aria-label': 'Grandparents link' });
+  (async () => { const { data, error } = await sb.from('wb_share_links').select('token').eq('id', 1).maybeSingle(); box.value = error || !data ? 'Not available offline' : url(data.token); })();
+  return h('section', { class: 'card stack' }, h('h2', null, 'Grandparents link'),
+    h('p', { class: 'small muted' }, 'A view-only page with just your Memories and photos. Anyone with the link can see it.'),
+    box,
+    h('div', { class: 'grid2' },
+      h('button', { class: 'secondary', onclick: async () => { if (!box.value.startsWith('http')) return; try { await navigator.clipboard.writeText(box.value); toast('Link copied'); } catch { box.select(); } } }, 'Copy link'),
+      h('button', { class: 'secondary', onclick: async () => { if (!confirm('Make a new link? The old one will stop working.')) return; const { data, error } = await sb.rpc('wb_rotate_share_link'); if (error) return toast(friendlyError(error), true); box.value = url(data); toast('New link made'); } }, 'Reset link')));
 }
 
 /* ---------- Web Push ---------- */
