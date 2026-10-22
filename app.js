@@ -1204,13 +1204,25 @@ function renderSettings() {
 function familyLinkCard() {
   const url = (t) => new URL(`family.html?k=${t}`, location.href.split('#')[0].replace(/[^/]*$/, '')).href;
   const box = h('input', { type: 'text', readonly: '', value: 'Loading…', 'aria-label': 'Grandparents link' });
+  const subs = h('div', { class: 'stack' }); loadSubs();
   (async () => { const { data, error } = await sb.from('wb_share_links').select('token').eq('id', 1).maybeSingle(); box.value = error || !data ? 'Not available offline' : url(data.token); })();
   return h('section', { class: 'card stack' }, h('h2', null, 'Grandparents link'),
     h('p', { class: 'small muted' }, 'A view-only page with just your Memories and photos. Anyone with the link can see it.'),
     box,
     h('div', { class: 'grid2' },
       h('button', { class: 'secondary', onclick: async () => { if (!box.value.startsWith('http')) return; try { await navigator.clipboard.writeText(box.value); toast('Link copied'); } catch { box.select(); } } }, 'Copy link'),
-      h('button', { class: 'secondary', onclick: async () => { if (!confirm('Make a new link? The old one will stop working.')) return; const { data, error } = await sb.rpc('wb_rotate_share_link'); if (error) return toast(friendlyError(error), true); box.value = url(data); toast('New link made'); } }, 'Reset link')));
+      h('button', { class: 'secondary', onclick: async () => { if (!confirm('Make a new link? The old one will stop working.')) return; const { data, error } = await sb.rpc('wb_rotate_share_link'); if (error) return toast(friendlyError(error), true); box.value = url(data); toast('New link made'); } }, 'Reset link'))),
+    h('h3', null, 'Email updates'), subs);
+  async function loadSubs() {
+    const { data, error } = await sb.from('wb_family_subscribers').select('id, email').order('created_at');
+    subs.replaceChildren();
+    if (error) return subs.append(h('p', { class: 'small muted' }, 'Not available offline'));
+    if (!data.length) return subs.append(h('p', { class: 'small muted' }, 'No one yet. People can sign up on the grandparents page.'));
+    for (const s of data) subs.append(h('div', { class: 'row', style: 'display:flex;justify-content:space-between;align-items:center;gap:8px' },
+      h('span', { style: 'overflow-wrap:anywhere' }, s.email),
+      h('button', { class: 'secondary', onclick: async () => { if (!confirm(`Stop emails to ${s.email}?`)) return; const { error: e } = await sb.from('wb_family_subscribers').delete().eq('id', s.id); if (e) return toast(friendlyError(e), true); toast('Removed'); loadSubs(); } }, 'Remove')));
+  }
+
 }
 
 /* ---------- Web Push ---------- */
