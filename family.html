@@ -29,7 +29,6 @@ main{max-width:640px;margin:0 auto;padding:18px 14px 40px}
 .grid.n1 img{aspect-ratio:auto;max-height:520px}
 .grid .more{position:relative}.grid .more span{position:absolute;inset:0;display:grid;place-items:center;background:rgba(15,39,71,.45);color:#fff;font-size:26px;font-weight:700;pointer-events:none}
 .msg{text-align:center;color:var(--muted);padding:60px 20px}
-#sub-box{max-width:640px;margin:0 auto 26px;padding:0 14px}#sub-box .card{padding:16px}#sub-box h2{margin:0 0 4px;font-size:18px}#sub-box p{margin:0 0 10px;color:var(--muted);font-size:15px}#sub-box form{display:flex;gap:8px}#sub-box input{flex:1;min-width:0;font:inherit;padding:11px 14px;border:1px solid var(--line);border-radius:12px;background:#fff}#sub-box button{font:inherit;font-weight:700;border:0;border-radius:99px;padding:11px 18px;background:var(--sky);color:var(--navy)}
 footer{text-align:center;color:var(--muted);font-size:13px;padding:0 20px 30px}
 #lb{position:fixed;inset:0;background:#06111F;display:none;z-index:9;touch-action:pan-y}
 #lb.on{display:block}#lb img{position:absolute;inset:0;margin:auto;max-width:100%;max-height:100%;object-fit:contain}
@@ -41,7 +40,6 @@ footer{text-align:center;color:var(--muted);font-size:13px;padding:0 20px 30px}
 <body>
 <header><div class="moon">🌙</div><h1>Westley’s First Year</h1><p id="sub">Born October 4, 2026</p></header>
 <main id="m"><p class="msg">Loading…</p></main>
-<section id="sub-box" hidden><div class="card"><h2>💌 Get an email when new photos are added</h2><p>We’ll send a short note with a link. Unsubscribe anytime.</p><form><input type="email" required placeholder="you@example.com" autocomplete="email" aria-label="Your email"><button>Notify me</button></form></div></section>
 <footer>Made with love from Daddy and Momma.</footer>
 <div id="lb" role="dialog" aria-label="Photo"><img alt=""><button class="x" aria-label="Close">✕</button><button class="p" aria-label="Previous">‹</button><button class="n" aria-label="Next">›</button><div class="c"></div></div>
 <script>
@@ -50,10 +48,6 @@ footer{text-align:center;color:var(--muted);font-size:13px;padding:0 20px 30px}
   const m = document.getElementById('m');
   const k = new URLSearchParams(location.search).get('k') || '';
   const msg = (t) => { m.innerHTML = ''; const p = document.createElement('p'); p.className = 'msg'; p.textContent = t; m.append(p); };
-  const EF = 'https://voydoxmxdnjnewxlwzse.supabase.co/functions/v1/wb-family-email';
-  const post = (b) => fetch(EF, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
-  const u = new URLSearchParams(location.search).get('unsub');
-  if (u) { try { const r = await post({ action: 'unsubscribe', u }); return msg(r.ok ? 'You’re unsubscribed. You won’t get any more emails.' : 'That unsubscribe link didn’t work.'); } catch { return msg('Couldn’t unsubscribe right now. Try again in a bit.'); } }
   if (!k) return msg('This page needs the link from Jacob and Sophie.');
   let d;
   try { const r = await fetch(FN + '?k=' + encodeURIComponent(k)); if (!r.ok) return msg(r.status === 404 ? 'This link isn’t working anymore. Ask Jacob or Sophie for a new one.' : 'Couldn’t load right now. Try again in a bit.'); d = await r.json(); }
@@ -61,12 +55,6 @@ footer{text-align:center;color:var(--muted);font-size:13px;padding:0 20px 30px}
   const born = new Date(d.born + 'T12:00:00');
   const age = Math.floor((Date.now() - born) / 864e5);
   document.getElementById('sub').textContent = `Born October 4, 2026 · ${age < 14 ? age + ' days' : age < 60 ? Math.floor(age / 7) + ' weeks' : Math.floor(age / 30.44) + ' months'} old`;
-  const sbx = document.getElementById('sub-box'), sf = sbx.querySelector('form'); sbx.hidden = false;
-  sf.onsubmit = async (e) => { e.preventDefault(); const btn = sf.querySelector('button'), inp = sf.querySelector('input'); btn.disabled = true;
-    try { const r = await post({ action: 'subscribe', k, email: inp.value });
-      if (r.ok) { sbx.querySelector('.card').innerHTML = '<h2>💙 You’re on the list!</h2><p>We’ll email you when new photos of Westley are added.</p>'; return; }
-      alert(r.status === 400 ? 'Please check that email address.' : r.status === 404 ? 'This link isn’t working anymore.' : 'Couldn’t sign up right now. Try again in a bit.');
-    } catch { alert('Couldn’t sign up right now. Check your connection.'); } btn.disabled = false; };
   if (!d.memories.length) return msg('No memories yet. Check back soon!');
   m.innerHTML = '';
   const fmt = (s) => new Date(s + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
