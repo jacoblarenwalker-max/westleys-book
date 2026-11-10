@@ -1,8 +1,8 @@
 // Westley's Book service worker: offline app shell + Web Push.
 // Never caches Supabase API traffic (data stays live and private); only the app's own files and the pinned
 // supabase-js module from jsDelivr.
-const VERSION = 'wb-v8';
-const SHELL = ['./', './index.html', './app.js?v=wb8', './styles.css?v=wb6', './theme.js?v=wb1', './config.js',
+const VERSION = 'wb-v9';
+const SHELL = ['./', './index.html', './app.js?v=wb9', './styles.css?v=wb9', './theme.js?v=wb1', './config.js',
   './manifest.webmanifest?v=wb1', './icon.svg?v=wb1', './icon-192.png?v=wb1', './apple-touch-icon.png?v=wb1', './favicon-32.png?v=wb1'];
 
 self.addEventListener('install', (event) => {
@@ -53,13 +53,13 @@ self.addEventListener('push', (event) => {
     renotify: !!d.tag,
     icon: 'icon-192.png?v=wb1',
     badge: 'icon-192.png?v=wb1',
-    data: { url: d.url || './#/feed' },
+    data: { url: d.url || './#/photos' },
   }));
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const target = new URL(event.notification.data?.url || './#/feed', self.registration.scope);
+  const target = new URL(event.notification.data?.url || './#/photos', self.registration.scope);
   if (target.origin !== self.location.origin) return;
   event.waitUntil((async () => {
     const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });

@@ -1,7 +1,7 @@
 # Westley’s Book
 
-A small, private, phone-first baby tracker for Jacob and Sophie and their son Westley. Feeding comes first:
-one tap starts the timer, one tap switches sides, one tap stops. Built to be used one-handed at 3 AM.
+A small, private, phone-first baby book for Jacob and Sophie and their son Westley. Memories come first:
+photos, firsts, and letters he’ll read someday. Built to be used one-handed.
 
 Plain static site (HTML/CSS/JS, [supabase-js](https://github.com/supabase/supabase-js) pinned from jsDelivr) on
 GitHub Pages, backed by the **household-meals** Supabase project (`voydoxmxdnjnewxlwzse`). Everything Westley’s Book
@@ -11,30 +11,24 @@ adds there is prefixed `wb_` / `wb-` and nothing from household-meals was change
 
 ## Screens (bottom tabs, big buttons in thumb reach)
 
-- **Feed** (home): “Westley last ate *2h 14m ago*”, the time, sides and length of that feed, **Ended on** (the
-  side the last breast feed finished on) and **Start on** (that same side). Big **L / R / Bottle** buttons; the
-  start side is highlighted. While feeding:
-  a running clock, per-side clocks, tap the other letter to **switch sides**, **+ Bottle** for a top-up, and a
-  big **Stop feeding** (with Undo). Today’s totals (feeds, minutes, left/right minutes, bottle volume), today’s
-  list (tap to edit/delete), **+ Add past feed** for forgotten ones, and earlier days on demand.
-  - The running feed is a database row with `ended_at = null`, so it survives closing the app and both phones
-    see the same timer. Bottle = amount (oz or mL presets), breast milk or formula, logged instantly.
-- **Diapers**: one tap **Wet / Dirty / Both** (with Undo), last change, today’s counts, edit or add earlier.
-- **Memories**: a timeline by month with photos and captions (with “Week 2”-style age tags once the birthday is
-  set) and who saved each one (“by Sophie”). Add up to 10 photos at once (resized on the phone to max 2048 px JPEG
-  before upload, with progress); a memory with several photos shows a small grid, and tapping a photo opens a
-  swipeable full-screen viewer. Editing a memory can add or remove photos.
-- **Meds**: one card per medicine (preloaded: Ibuprofen and Hydrocodone for Sophie every 8h / 4h, Colace twice
-  a day at 8 AM and 8 PM, Iron every other day at 9 AM, Sophie’s and Westley’s vitamins daily at 9 AM). Each card shows the
-  last dose, when the next is due (“Due in 2h 10m” / “Due now” / “Done today”), a big **Took it** button with Undo,
-  and recent doses. Tap a card to edit the name, who it’s for, the schedule, the reminder time, reminders on/off,
-  or fix/add/delete doses. Push reminders: `private.wb_send_med_reminders()` runs every 5 minutes (pg_cron job
-  `wb-med-reminders`) and sends each due dose once (de-duplicated in `wb_med_reminders`) through `wb-push`.
+- **Memories** (home): a photo-first timeline grouped by month. Each memory shows Westley’s age that day
+  (“3 weeks old”, “1 month old”), who saved it, a heart from Jake and/or Sophie, and short comments.
+  The latest photo opens the book; when a memory falls on this date last week, last month, or last year, an
+  “On this day” card looks back. Each month with a few photos has a **Recap** slideshow. Add up to 10 photos
+  at once (resized on the phone to max 2048 px JPEG at quality ~0.8, no video) with progress; tapping a photo
+  opens a swipeable full-screen viewer with pinch or double-tap to zoom.
+- **Firsts**: monthly portrait slots (“Westley at 1 month” through 12 months) plus a first-year checklist
+  (first smile, laugh, rolling over, and so on — no medical content). Each first can be dated and linked to a memory.
+- **Letters**: a private time capsule. Both parents can write letters to Westley; they never appear on the
+  grandparents’ page.
 - **Doctor**: four simple tabs: **Questions** for the next visit (check them off, add the answer),
   **Growth** (weight / length / head with small line charts and change since last time), **Shots**, **Visits**.
-- **Settings** (gear): baby name + birthday (shows his age in the header), feeding reminder
-  (Off / 2h / 2½h / 3h / 3½h / 4h after the last feed *started*), units (oz/mL, lb·in/kg·cm), Night/Day colors,
-  notifications for this phone, sign out.
+- **Settings** (gear): baby name + birthday (shows his age in the header), growth units, Night/Day colors,
+  notifications for this phone, the grandparents’ link, sign out.
+
+The **Feed**, **Diapers**, **Meds** and **Sleep** tabs have been retired so Memories can come first. Their tables
+and every row are still in the database; nothing was deleted. Feeding and medication reminder crons
+(`wb-feed-reminders`, `wb-med-reminders`) were unscheduled.
 
 **Night** colors (dim navy, no bright white) are the default; the ☀️/🌙 button in the header switches to **Day**,
 which is the household-meals look (baby blue band, white cards, beige accents).
@@ -42,7 +36,7 @@ which is the household-meals look (baby blue band, white cards, beige accents).
 ## Reliability
 
 - Every change is shown immediately and kept in a small **outbox** (localStorage) until Supabase confirms it, so a
-  feed logged with no signal is never lost; it syncs when the phone is back online. Ids are made on the phone, so
+  change logged with no signal is never lost; it syncs when the phone is back online. Ids are made on the phone, so
   retries are safe.
 - The last data is cached on the phone, so the app opens instantly (and offline).
 - **Realtime**: both phones update live (Supabase Realtime, RLS applies). On reconnect the app re-syncs.
@@ -60,7 +54,7 @@ which is the household-meals look (baby blue band, white cards, beige accents).
   Home Screen apps on iPhone keep their own sign-in.
 - `config.js` only has the Supabase URL, the publishable key and the VAPID **public** key.
 
-## Database (`supabase/migrations/`, applied as `wb_schema` and `wb_push_reminders`)
+## Database (`supabase/migrations/`, applied as `wb_schema`, `wb_push_reminders`, …, `wb_memories_book`)
 
 | table | what |
 |---|---|
@@ -70,27 +64,21 @@ which is the household-meals look (baby blue band, white cards, beige accents).
 | `wb_diapers` | `at`, `kind` (wet/dirty/both/dry), `note` |
 | `wb_sleeps` | `started_at`, `ended_at` (null = asleep), `note`. The Sleep tab was retired Oct 9 2026; the table and its data are kept, the app no longer reads it. |
 | `wb_memories` | `happened_on`, `caption`, `photo_paths` (up to 10 `<uuid>.jpg` in `wb-photos`; `photo_path` = the first one, and older memories only have `photo_path`), `created_by` (the author, set by the server on insert and never changed) |
+| `wb_memory_hearts` | one heart per parent per memory (`memory_id`, `user_id`) |
+| `wb_memory_comments` | short notes on a memory (`body` up to 400 characters, author frozen) |
+| `wb_firsts` | marked firsts (`id` = slug such as `smile`, optional `memory_id`, `happened_on`, `note`) |
+| `wb_month_portraits` | `id` 1–12, linked `memory_id` + `photo_path` for “Westley at N months” |
+| `wb_letters` | private letters (`written_on`, `body`, author frozen) |
 | `wb_visits`, `wb_growth` (`weight_g`, `length_cm`, `head_cm`), `wb_vaccines`, `wb_questions` | doctor |
 | `wb_push_subscriptions` | one row per phone (each user sees only their own) |
-| `wb_feed_reminders` | one row per feed that got a reminder (de-dupe + log; no client access) |
+| `wb_feed_reminders` | one row per feed that got a reminder (de-dupe + log; no client access). The cron was unscheduled; the table stays. |
 
-## Feeding reminders (Web Push, free)
+## Notifications (Web Push, free)
 
-pg_cron job **`wb-feed-reminders`** runs `select private.wb_send_feed_reminders();` every 5 minutes. It sends one
-reminder per feed when the last feed *started* `feed_reminder_minutes` ago, no feed is running, and that feed isn’t
-older than the interval + 3 hours. It claims the feed in `wb_feed_reminders`, then calls the Edge Function
-**`wb-push`** through pg_net with a shared secret from Vault (`wb_push_webhook_secret`). `wb-push` signs VAPID JWTs and
-encrypts payloads (RFC 8291) with the private key in Vault (`wb_push_vapid_private_jwk`, created inside Supabase by
-the function’s one-time `init`; never in this repo) and sends to every parent’s phone. Expired subscriptions are
-removed. Signed-in parents can also send themselves a test from Settings.
-
-Checking it (SQL editor):
-```sql
-select private.wb_send_feed_reminders(now() + interval '3 hours', 'plan');     -- what would be sent, writes nothing
-select * from public.wb_feed_reminders order by created_at desc;               -- history
-select * from cron.job_run_details where jobid = (select jobid from cron.job where jobname = 'wb-feed-reminders')
-order by start_time desc limit 20;
-```
+Feeding and medication reminder crons (`wb-feed-reminders`, `wb-med-reminders`) were unscheduled when those tabs
+were retired. The `wb-push` Edge Function, VAPID keys in Vault, and `wb_push_subscriptions` stay in place so a
+signed-in parent can still send themselves a test from Settings. The reminder functions and history tables were
+not deleted.
 
 iPhone: needs iOS 16.4+. In Safari: Share → **Add to Home Screen**, open **Westley** from the Home Screen, sign in,
 then Settings → **Turn on notifications** → Allow.

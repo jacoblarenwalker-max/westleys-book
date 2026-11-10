@@ -6,18 +6,20 @@ const sb = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
 });
 
 /* ================= state ================= */
-// (wb_sleeps still exists in the database with its data, but the Sleep tab was retired on Oct 9 2026)
-const TABLES = ['wb_feedings', 'wb_diapers', 'wb_memories', 'wb_visits', 'wb_growth', 'wb_vaccines', 'wb_questions', 'wb_meds', 'wb_med_doses'];
+// wb_sleeps, wb_feedings, wb_diapers, wb_meds and wb_med_doses still exist with their data.
+// Those tabs were retired so Memories can come first; nothing was deleted.
+const TABLES = ['wb_memories', 'wb_visits', 'wb_growth', 'wb_vaccines', 'wb_questions', 'wb_memory_hearts', 'wb_memory_comments', 'wb_firsts', 'wb_month_portraits', 'wb_letters'];
 const SORT = {
-  wb_feedings: (a, b) => cmp(b.started_at, a.started_at),
-  wb_diapers: (a, b) => cmp(b.at, a.at),
   wb_memories: (a, b) => cmp(b.happened_on, a.happened_on) || cmp(b.created_at, a.created_at),
   wb_visits: (a, b) => cmp(b.visit_date, a.visit_date),
   wb_growth: (a, b) => cmp(b.measured_on, a.measured_on),
   wb_vaccines: (a, b) => cmp(b.given_on, a.given_on),
   wb_questions: (a, b) => cmp(a.created_at, b.created_at),
-  wb_meds: (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || cmp(a.created_at, b.created_at),
-  wb_med_doses: (a, b) => cmp(b.taken_at, a.taken_at),
+  wb_memory_hearts: (a, b) => cmp(a.created_at, b.created_at),
+  wb_memory_comments: (a, b) => cmp(a.created_at, b.created_at),
+  wb_firsts: (a, b) => cmp(a.id, b.id),
+  wb_month_portraits: (a, b) => (a.id ?? 0) - (b.id ?? 0),
+  wb_letters: (a, b) => cmp(b.written_on, a.written_on) || cmp(b.created_at, a.created_at),
 };
 const DEFAULT_FAMILY = { id: 1, baby_name: 'Westley', birth_date: null, feed_reminder_enabled: true, feed_reminder_minutes: 180, volume_unit: 'oz', weight_unit: 'lb' };
 const S = {
@@ -52,6 +54,10 @@ function h(tag, attrs, ...children) {
 const uuid = () => crypto.randomUUID();
 const buzz = () => { try { navigator.vibrate?.(12); } catch { /* ignore */ } };
 const babyName = () => S.family.baby_name || 'Westley';
+const whoName = (uid) => S.parents.find((p) => p.user_id === uid)?.display_name || '';
+function groupBy(list, key) { const m = new Map(); for (const x of list) { const k = key(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); } return m; }
+const previewText = (s, n = 160) => { const t = String(s || '').replace(/\s+/g, ' ').trim(); return t.length <= n ? t : `${t.slice(0, n).trim()}…`; };
+
 
 let toastTimer;
 function toast(text, isError = false, action = null) {
@@ -125,12 +131,19 @@ function ageAt(dateStr) {
   const birth = S.family.birth_date; if (!birth || !dateStr) return null;
   const days = Math.round((parseDate(dateStr) - parseDate(birth)) / 86400000);
   if (days < 0) return null;
-  if (days === 0) return 'Birthday';
-  if (days < 14) return `Day ${days}`;
-  if (days < 7 * 13) return `Week ${Math.floor(days / 7)}`;
+  if (days === 0) return 'Born today';
+  if (days === 1) return '1 day old';
+  if (days < 14) return `${days} days old`;
+  if (days < 7 * 13) {
+    const w = Math.floor(days / 7);
+    return w === 1 ? '1 week old' : `${w} weeks old`;
+  }
   const b = parseDate(birth); const d = parseDate(dateStr);
-  let m = (d.getFullYear() - b.getFullYear()) * 12 + (d.getMonth() - b.getMonth()); if (d.getDate() < b.getDate()) m--;
-  return `${m} months`;
+  let mo = (d.getFullYear() - b.getFullYear()) * 12 + (d.getMonth() - b.getMonth()); if (d.getDate() < b.getDate()) mo--;
+  if (mo < 1) { const w = Math.max(1, Math.floor(days / 7)); return w === 1 ? '1 week old' : `${w} weeks old`; }
+  if (mo < 24) return mo === 1 ? '1 month old' : `${mo} months old`;
+  const y = Math.floor(mo / 12);
+  return y === 1 ? '1 year old' : `${y} years old`;
 }
 
 /* ---------- units ---------- */
@@ -150,7 +163,8 @@ const fmtLen = (cm) => (cm == null ? '—' : imperial() ? `${+(cm / 2.54).toFixe
 const num = (v) => { const s = String(v ?? '').trim().replace(',', '.'); if (!s) return null; const n = Number(s); return Number.isFinite(n) ? n : NaN; };
 
 /* ================= data: cache, outbox, realtime ================= */
-const CACHE_KEY = 'wb-cache-v1';
+const CACHE_KEY = 'wb-cache-v2';
+try { localStorage.removeItem('wb-cache-v1'); } catch { /* ignore */ }
 const OUTBOX_KEY = 'wb-outbox-v1';
 function saveCache() {
   if (!S.session) return;
@@ -222,12 +236,7 @@ let syncState = 'ok';
 function setSync(s) { if (syncState === s) return; syncState = s; document.body.classList.toggle('offline', s === 'offline'); }
 
 async function fetchTable(t) {
-  const since = new Date(now() - 21 * 86400000).toISOString();
-  let q = sb.from(t).select('*');
-  if (t === 'wb_feedings') q = q.or(`started_at.gte.${since},ended_at.is.null`).order('started_at', { ascending: false }).limit(1000);
-  else if (t === 'wb_diapers') q = q.gte('at', since).order('at', { ascending: false }).limit(1000);
-  else if (t === 'wb_med_doses') q = q.order('taken_at', { ascending: false }).limit(2000);
-  else q = q.limit(2000);
+  const q = sb.from(t).select('*').limit(2000);
   const { data, error } = await q;
   if (error) throw error;
   // keep local rows that are still waiting in the outbox
@@ -281,74 +290,13 @@ async function refreshAllQuietly() {
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { refreshAllQuietly(); tick(); } });
 
-/* ================= feeding model ================= */
-const feeds = () => S.rows.wb_feedings;
-const activeFeed = () => feeds().find((f) => !f.ended_at && (f.segments || []).length) || null;
-const segs = (f) => f.segments || [];
-const openSeg = (f) => segs(f).find((s) => !s.end) || null;
-function sideMs(f, side, at = now()) {
-  return segs(f).filter((s) => s.side === side).reduce((n, s) => n + Math.max(0, (s.end ? ms(s.end) : at) - ms(s.start)), 0);
-}
-const feedMs = (f, at = now()) => sideMs(f, 'L', at) + sideMs(f, 'R', at);
-const lastSide = (f) => { const b = segs(f).filter((s) => s.side === 'L' || s.side === 'R'); return b.length ? b[b.length - 1].side : null; };
-const firstSide = (f) => { const b = segs(f).filter((s) => s.side === 'L' || s.side === 'R'); return b.length ? b[0].side : null; };
-const SIDE = { L: 'Left', R: 'Right' };
-function lastFinishedFeed() { return feeds().find((f) => f.ended_at) || null; }
-// Start the next feed on the side the last one ENDED on (bottle-only feeds don't count).
-const lastBreastFeed = () => feeds().find((x) => x.ended_at && lastSide(x)) || null;
-function suggestedSide() {
-  const f = lastBreastFeed();
-  return f ? lastSide(f) : null;
-}
-function feedSummary(f) {
-  const parts = [];
-  const l = sideMs(f, 'L'); const r = sideMs(f, 'R');
-  const order = firstSide(f) === 'R' ? [['R', r], ['L', l]] : [['L', l], ['R', r]];
-  for (const [s, v] of order) if (v > 0 || segs(f).some((x) => x.side === s)) parts.push(`${s} ${Math.max(1, Math.round(v / 60000))}m`);
-  if (f.bottle_ml != null) parts.push(`🍼 ${fmtVol(f.bottle_ml)}`);
-  return parts.join(' · ') || '—';
-}
-
-function startFeed(side) {
-  buzz();
-  const t = isoNow();
-  save('wb_feedings', { id: uuid(), started_at: t, ended_at: null, segments: [{ side, start: t, end: null }], bottle_ml: null, created_by: S.session.user.id });
-  render();
-}
-function switchSide(side) {
-  const f = activeFeed(); if (!f) return startFeed(side);
-  const cur = openSeg(f);
-  if (cur?.side === side) return;
-  buzz();
-  const t = isoNow();
-  const s2 = segs(f).map((s) => (s.end ? s : { ...s, end: t }));
-  s2.push({ side, start: t, end: null });
-  save('wb_feedings', { ...f, segments: s2 });
-  render();
-}
-function stopFeed() {
-  const f = activeFeed(); if (!f) return;
-  buzz();
-  const t = isoNow();
-  const done = { ...f, ended_at: t, segments: segs(f).map((s) => (s.end ? s : { ...s, end: t })) };
-  save('wb_feedings', done);
-  render();
-  toast(`Saved · ${fmtMin(feedMs(done))}`, false, { label: 'Undo', onClick: () => { save('wb_feedings', { ...f }); render(); } });
-}
-
 /* ================= tick (live clocks without re-rendering) ================= */
 function tick() {
   for (const el of document.querySelectorAll('[data-since]')) {
     el.textContent = el.dataset.mode === 'clock' ? fmtDur(now() - Number(el.dataset.since), { secs: true }) : fmtAgo(Number(el.dataset.since));
   }
-  for (const el of document.querySelectorAll('[data-side-ms]')) {
-    const f = activeFeed(); if (!f) continue;
-    el.textContent = fmtDur(sideMs(f, el.dataset.sideMs), { secs: true });
-  }
 }
 setInterval(tick, 1000);
-// the Meds tab's "Due in …" labels move with the clock
-setInterval(() => { if (S.parent && !sheetEl && route() === 'meds' && document.visibilityState === 'visible') render(); }, 30000);
 
 /* ================= shell, routing ================= */
 const ICONS = {
@@ -368,13 +316,16 @@ const ICONS = {
   dots: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="12" cy="19" r="1.3"/></svg>',
   check: '<svg class="ico" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
   phone: '<svg class="ico" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>',
+  firsts: '<svg class="ico" viewBox="0 0 24 24"><path d="M12 3l2.2 6.6H21l-5.4 4 2.1 6.4L12 16.8 6.3 20l2.1-6.4L3 9.6h6.8z"/></svg>',
+  letters: '<svg class="ico" viewBox="0 0 24 24"><path d="M4 6h16v12H4z"/><path d="M4 6l8 7 8-7"/></svg>',
 };
 const icon = (name) => h('span', { class: 'ico-wrap', 'aria-hidden': 'true', html: ICONS[name] });
-const TABS = [['feed', 'Feed'], ['diaper', 'Diapers'], ['meds', 'Meds'], ['photos', 'Memories'], ['doctor', 'Doctor']];
+const TABS = [['photos', 'Memories'], ['firsts', 'Firsts'], ['letters', 'Letters'], ['doctor', 'Doctor']];
 
 function route() {
   const v = location.hash.replace(/^#\/?/, '').split('/')[0];
-  return [...TABS.map((t) => t[0]), 'settings'].includes(v) ? v : 'feed';
+  if (['feed', 'diaper', 'diapers', 'meds'].includes(v)) return 'photos';
+  return [...TABS.map((t) => t[0]), 'settings'].includes(v) ? v : 'photos';
 }
 window.addEventListener('hashchange', () => { closeSheet(); render(); window.scrollTo(0, 0); });
 
@@ -418,7 +369,7 @@ function render() {
   if (!S.session) return renderAuth();
   if (!S.parent) return renderNotParent();
   const v = route();
-  ({ feed: renderFeed, diaper: renderDiaper, meds: renderMeds, photos: renderPhotos, doctor: renderDoctor, settings: renderSettings })[v]();
+  ({ photos: renderPhotos, firsts: renderFirsts, letters: renderLetters, doctor: renderDoctor, settings: renderSettings })[v]();
 }
 appEl.addEventListener('focusout', () => setTimeout(() => { if (renderPending) render(); }, 0));
 
@@ -474,7 +425,7 @@ function renderAuth(notice) {
   const help = isStandalone() ? null : h('button', { type: 'button', class: 'ghost', onclick: () => installGuide() }, icon('phone'), 'How to put it on your phone');
   appEl.className = 'app';
   appEl.replaceChildren(h('main', { class: 'auth' },
-    h('div', { class: 'hero' }, h('img', { src: 'icon.svg?v=wb1', alt: '' }), h('h1', null, 'Westley’s Book'), h('p', null, 'Feeds, diapers, meds and little moments, together.')),
+    h('div', { class: 'hero' }, h('img', { src: 'icon.svg?v=wb1', alt: '' }), h('h1', null, 'Westley’s Book'), h('p', null, 'Photos, firsts and little notes, just for the two of you.')),
     form, help));
 }
 function renderNotParent() {
@@ -487,218 +438,13 @@ function renderNotParent() {
       h('button', { class: 'secondary block', onclick: () => sb.auth.signOut() }, 'Sign out'))));
 }
 
-/* ================= Feed (home) ================= */
-const isToday = (ts) => ms(ts) >= startOfToday();
-function stat(label, value) { return h('div', { class: 'stat' }, h('div', { class: 'v' }, value), h('div', { class: 'l' }, label)); }
-let showEarlierFeeds = false;
-
-function renderFeed() {
-  const f = activeFeed();
-  const last = feeds().find((x) => x.ended_at) || null;
-  const next = suggestedSide();
-  const name = babyName();
-  let hero;
-  if (f) {
-    const cur = openSeg(f);
-    hero = h('section', { class: 'hero-card live' },
-      h('div', { class: 'eyebrow' }, h('span', { class: 'pulse' }), `${name} is eating · ${SIDE[cur?.side] || ''}`),
-      h('div', { class: 'big', 'data-since': ms(f.started_at), 'data-mode': 'clock' }, fmtDur(now() - ms(f.started_at), { secs: true })),
-      h('div', { class: 'sides' },
-        ['L', 'R'].map((s) => h('div', { class: 'side' + (cur?.side === s ? ' on' : '') }, h('span', null, SIDE[s]), h('strong', { 'data-side-ms': s }, fmtDur(sideMs(f, s), { secs: true }))))),
-      f.bottle_ml != null ? h('p', { class: 'sub' }, `+ bottle ${fmtVol(f.bottle_ml)}`) : null);
-  } else if (last) {
-    const ls = next;
-    hero = h('section', { class: 'hero-card' },
-      h('div', { class: 'eyebrow' }, `${name} last ate`),
-      h('div', { class: 'big', 'data-since': ms(last.started_at) }, fmtAgo(last.started_at)),
-      h('p', { class: 'sub' }, `${fmtTime(last.started_at)} · ${feedSummary(last)}`),
-      h('div', { class: 'chips' },
-        ls ? h('span', { class: 'chip side-chip' }, `Ended on: ${ls}`) : null,
-        next ? h('span', { class: 'chip next-chip' }, `Start on: ${SIDE[next]}`) : null));
-  } else {
-    hero = h('section', { class: 'hero-card' },
-      h('div', { class: 'eyebrow' }, `Hi, ${name} 💙`),
-      h('div', { class: 'big small-big' }, 'No feeds yet'),
-      h('p', { class: 'sub' }, 'Tap a side below to start the timer.'));
-  }
-
-  const today = feeds().filter((x) => isToday(x.started_at));
-  const l = today.reduce((n, x) => n + sideMs(x, 'L'), 0);
-  const r = today.reduce((n, x) => n + sideMs(x, 'R'), 0);
-  const bottle = today.reduce((n, x) => n + (+x.bottle_ml || 0), 0);
-  const totals = h('section', { class: 'card today' },
-    h('div', { class: 'stats' },
-      stat('feeds', today.length),
-      stat('minutes', Math.round((l + r) / 60000)),
-      stat('left / right', `${Math.round(l / 60000)} / ${Math.round(r / 60000)}`),
-      stat('bottle', bottle ? fmtVol(bottle) : '—')));
-
-  const rows = (list) => list.map((x) => h('button', { class: 'logrow', onclick: () => feedSheet(x) },
-    h('span', { class: 'when' }, fmtTime(x.started_at)),
-    h('span', { class: 'what' }, feedSummary(x)),
-    h('span', { class: 'dur' }, x.ended_at ? (feedMs(x) ? fmtMin(feedMs(x)) : '') : 'now')));
-  const earlier = feeds().filter((x) => !isToday(x.started_at) && ms(x.started_at) > now() - 7 * 86400000);
-  const byDay = groupBy(earlier, (x) => fmtDayLabel(x.started_at));
-  const list = h('section', { class: 'card list' },
-    h('div', { class: 'list-head' }, h('h2', null, 'Today'), h('button', { class: 'ghost', onclick: () => feedSheet(null) }, '+ Add past feed')),
-    today.length ? rows(today) : h('p', { class: 'muted empty' }, 'Nothing yet today.'),
-    earlier.length ? (showEarlierFeeds
-      ? [...byDay].map(([day, xs]) => [h('h3', { class: 'day-head' }, day, h('span', { class: 'muted' }, ` · ${xs.length} feeds`)), rows(xs)])
-      : h('button', { class: 'ghost block', onclick: () => { showEarlierFeeds = true; render(); } }, 'Show earlier days')) : null);
-
-  let dock;
-  if (f) {
-    const cur = openSeg(f)?.side;
-    dock = [
-      h('div', { class: 'dock-row three' },
-        ['L', 'R'].map((s) => h('button', { class: 'side-btn' + (cur === s ? ' on' : ''), onclick: () => switchSide(s), 'aria-pressed': String(cur === s) },
-          h('span', { class: 'letter' }, s), h('span', { class: 'lbl' }, cur === s ? 'Feeding' : 'Switch'))),
-        h('button', { class: 'side-btn bottle', onclick: () => bottleSheet(f) }, h('span', { class: 'letter' }, '🍼'), h('span', { class: 'lbl' }, '+ Bottle'))),
-      h('button', { class: 'stop-btn', onclick: stopFeed }, 'Stop feeding')];
-  } else {
-    dock = h('div', { class: 'dock-row three' },
-      ['L', 'R'].map((s) => h('button', { class: 'side-btn start' + (next === s ? ' suggest' : ''), onclick: () => startFeed(s) },
-        h('span', { class: 'letter' }, s), h('span', { class: 'lbl' }, next === s ? `Start ${SIDE[s]}` : SIDE[s]))),
-      h('button', { class: 'side-btn bottle', onclick: () => bottleSheet(null) }, h('span', { class: 'letter' }, '🍼'), h('span', { class: 'lbl' }, 'Bottle')));
-  }
-  mount('feed', { title: 'Feeding', sub: ageText(S.family.birth_date) || `${name}’s Book`, main: [hero, totals, list], dock });
-}
-function groupBy(list, key) { const m = new Map(); for (const x of list) { const k = key(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); } return m; }
-
-function amountPicker(initialMl) {
-  const unit = volUnit();
-  const presets = unit === 'oz' ? [1, 2, 3, 4, 5] : [30, 60, 90, 120, 150];
-  const input = h('input', { type: 'number', inputmode: 'decimal', step: unit === 'oz' ? '0.5' : '5', min: '0', placeholder: unit, value: initialMl != null ? fromMl(initialMl) : '' });
-  const chips = h('div', { class: 'chip-row' }, presets.map((p) => h('button', { type: 'button', class: 'pick', onclick: () => { input.value = p; buzz(); } }, `${p} ${unit === 'oz' ? 'oz' : 'mL'}`)));
-  return { el: h('div', { class: 'stack tight' }, chips, field(`Amount (${unit === 'oz' ? 'oz' : 'mL'})`, input)), value: () => num(input.value) };
-}
-function bottleSheet(active) {
-  const amt = amountPicker(active?.bottle_ml ?? null);
-  let kind = active?.bottle_kind || localStorage.getItem('wb-bottle-kind') || 'breastmilk';
-  const when = h('input', { type: 'datetime-local', value: toLocalInput(now()) });
-  const save1 = h('button', { class: 'block big', onclick: () => {
-    const v = amt.value();
-    if (v == null || Number.isNaN(v) || v <= 0) return toast('Enter how much he drank.', true);
-    localStorage.setItem('wb-bottle-kind', kind);
-    if (active) {
-      save('wb_feedings', { ...active, bottle_ml: Math.round(toMl(v) * 10) / 10, bottle_kind: kind });
-    } else {
-      const t = fromLocalInput(when.value) || isoNow();
-      save('wb_feedings', { id: uuid(), started_at: t, ended_at: t, segments: [], bottle_ml: Math.round(toMl(v) * 10) / 10, bottle_kind: kind, created_by: S.session.user.id });
-    }
-    buzz(); closeSheet(); render(); toast(`Bottle saved · ${fmtVol(toMl(v))}`);
-  } }, active ? 'Add to this feed' : 'Save bottle');
-  openSheet(active ? 'Add a bottle' : 'Bottle', h('div', { class: 'stack' },
-    amt.el,
-    seg([['breastmilk', 'Breast milk'], ['formula', 'Formula']], kind, (k) => { kind = k; }),
-    active ? null : field('When', when),
-    save1));
-}
-
-// edit an existing feed or add a forgotten one
-function feedSheet(f) {
-  const isNew = !f;
-  const base = f || { id: uuid(), started_at: new Date(now() - 30 * 60000).toISOString(), ended_at: null, segments: [], bottle_ml: null };
-  const live = !isNew && !base.ended_at;
-  const start = h('input', { type: 'datetime-local', value: toLocalInput(base.started_at) });
-  const minL = h('input', { type: 'number', inputmode: 'numeric', min: '0', max: '180', placeholder: '0', value: isNew ? '' : Math.round(sideMs(base, 'L') / 60000) || '' });
-  const minR = h('input', { type: 'number', inputmode: 'numeric', min: '0', max: '180', placeholder: '0', value: isNew ? '' : Math.round(sideMs(base, 'R') / 60000) || '' });
-  const amt = amountPicker(base.bottle_ml);
-  const note = h('input', { type: 'text', maxlength: '1000', placeholder: 'Optional', value: base.note || '' });
-  const del = h('button', { type: 'button', class: 'ghost danger block' }, 'Delete feed');
-  del.addEventListener('click', () => confirmDelete(del, 'feed', () => {
-    remove('wb_feedings', base.id); closeSheet(); render();
-    toast('Feed deleted', false, { label: 'Undo', onClick: () => { save('wb_feedings', base); render(); } });
-  }));
-  const saveBtn = h('button', { class: 'block big', onclick: () => {
-    const st = fromLocalInput(start.value);
-    const l = num(minL.value) || 0; const r = num(minR.value) || 0; const b = amt.value();
-    if (!st) return toast('Pick a start time.', true);
-    if ([l, r].some((x) => Number.isNaN(x) || x < 0 || x > 300) || Number.isNaN(b)) return toast('Check the numbers.', true);
-    if (!live && !l && !r && !b) return toast('Add minutes or a bottle amount.', true);
-    const row = { ...base, started_at: st, note: note.value.trim() || null, bottle_ml: b ? Math.round(toMl(b) * 10) / 10 : null };
-    if (!live) {
-      const changed = isNew || Math.round(sideMs(base, 'L') / 60000) !== l || Math.round(sideMs(base, 'R') / 60000) !== r || base.started_at !== st;
-      if (changed) {
-        const order = firstSide(base) === 'R' ? [['R', r], ['L', l]] : [['L', l], ['R', r]];
-        let t = ms(st); const s2 = [];
-        for (const [side, m] of order) if (m > 0) { s2.push({ side, start: new Date(t).toISOString(), end: new Date(t + m * 60000).toISOString() }); t += m * 60000; }
-        row.segments = s2; row.ended_at = new Date(t).toISOString();
-      }
-    } else {
-      // running feed: only the start time can move (the timer keeps going)
-      const shift = ms(st) - ms(base.started_at);
-      if (shift) row.segments = segs(base).map((s, i) => (i === 0 ? { ...s, start: new Date(ms(s.start) + shift).toISOString() } : s));
-      if (shift && ms(row.segments[0].start) > (row.segments[0].end ? ms(row.segments[0].end) : now())) return toast('Start time is too late.', true);
-    }
-    if (isNew) row.created_by = S.session.user.id;
-    save('wb_feedings', row); closeSheet(); render(); toast(isNew ? 'Feed added' : 'Feed updated');
-  } }, isNew ? 'Add feed' : 'Save');
-  openSheet(isNew ? 'Add a past feed' : 'Edit feed', h('div', { class: 'stack' },
-    field('Started', start),
-    live ? h('p', { class: 'small muted' }, 'This feed is still running. Stop it first to change the minutes.')
-      : h('div', { class: 'grid2' }, field('Left (min)', minL), field('Right (min)', minR)),
-    h('details', { class: 'more', open: base.bottle_ml != null ? true : null }, h('summary', null, 'Bottle'), amt.el),
-    field('Note', note),
-    saveBtn, isNew ? null : del));
-}
-
-/* ================= Diapers ================= */
-const DIAPER = { wet: ['💧', 'Wet'], dirty: ['💩', 'Dirty'], both: ['💧💩', 'Both'], dry: ['○', 'Dry'] };
-function logDiaper(kind) {
-  buzz();
-  const row = { id: uuid(), at: isoNow(), kind, created_by: S.session.user.id };
-  save('wb_diapers', row); render();
-  toast(`${DIAPER[kind][1]} diaper logged`, false, { label: 'Undo', onClick: () => { remove('wb_diapers', row.id); render(); } });
-}
-function renderDiaper() {
-  const all = S.rows.wb_diapers;
-  const last = all[0];
-  const today = all.filter((d) => isToday(d.at));
-  const wet = today.filter((d) => d.kind === 'wet' || d.kind === 'both').length;
-  const dirty = today.filter((d) => d.kind === 'dirty' || d.kind === 'both').length;
-  const hero = h('section', { class: 'hero-card' },
-    h('div', { class: 'eyebrow' }, 'Last diaper'),
-    last ? h('div', { class: 'big', 'data-since': ms(last.at) }, fmtAgo(last.at)) : h('div', { class: 'big small-big' }, 'None yet'),
-    last ? h('p', { class: 'sub' }, `${DIAPER[last.kind][1]} · ${fmtTime(last.at)}`) : h('p', { class: 'sub' }, 'One tap below logs a change.'));
-  const totals = h('section', { class: 'card today' }, h('div', { class: 'stats three' }, stat('changes today', today.length), stat('wet', wet), stat('dirty', dirty)));
-  const rows = (xs) => xs.map((d) => h('button', { class: 'logrow', onclick: () => diaperSheet(d) },
-    h('span', { class: 'when' }, fmtTime(d.at)), h('span', { class: 'what' }, `${DIAPER[d.kind][0]}  ${DIAPER[d.kind][1]}`), h('span', { class: 'dur' }, d.note ? '✎' : '')));
-  const earlier = all.filter((d) => !isToday(d.at) && ms(d.at) > now() - 3 * 86400000);
-  const list = h('section', { class: 'card list' },
-    h('div', { class: 'list-head' }, h('h2', null, 'Today'), h('button', { class: 'ghost', onclick: () => diaperSheet(null) }, '+ Add earlier')),
-    today.length ? rows(today) : h('p', { class: 'muted empty' }, 'No changes yet today.'),
-    [...groupBy(earlier, (d) => fmtDayLabel(d.at))].map(([day, xs]) => [h('h3', { class: 'day-head' }, day, h('span', { class: 'muted' }, ` · ${xs.length}`)), rows(xs)]));
-  const dock = h('div', { class: 'dock-row three' },
-    ['wet', 'dirty', 'both'].map((k) => h('button', { class: `side-btn diaper ${k}`, onclick: () => logDiaper(k) }, h('span', { class: 'letter emoji' }, DIAPER[k][0]), h('span', { class: 'lbl' }, DIAPER[k][1]))));
-  mount('diaper', { title: 'Diapers', sub: ageText(S.family.birth_date) || `${babyName()}’s Book`, main: [hero, totals, list], dock });
-}
-function diaperSheet(d) {
-  const isNew = !d;
-  const base = d || { id: uuid(), at: isoNow(), kind: 'wet' };
-  let kind = base.kind;
-  const at = h('input', { type: 'datetime-local', value: toLocalInput(base.at) });
-  const note = h('input', { type: 'text', maxlength: '1000', placeholder: 'Optional (color, rash…)', value: base.note || '' });
-  const del = h('button', { type: 'button', class: 'ghost danger block' }, 'Delete change');
-  del.addEventListener('click', () => confirmDelete(del, 'change', () => { remove('wb_diapers', base.id); closeSheet(); render(); toast('Deleted', false, { label: 'Undo', onClick: () => { save('wb_diapers', base); render(); } }); }));
-  openSheet(isNew ? 'Add a diaper' : 'Edit diaper', h('div', { class: 'stack' },
-    seg(Object.entries(DIAPER).map(([k, [e, l]]) => [k, `${e} ${l}`]), kind, (k) => { kind = k; }),
-    field('When', at), field('Note', note),
-    h('button', { class: 'block big', onclick: () => {
-      const t = fromLocalInput(at.value); if (!t) return toast('Pick a time.', true);
-      save('wb_diapers', { ...base, at: t, kind, note: note.value.trim() || null, ...(isNew ? { created_by: S.session.user.id } : {}) });
-      closeSheet(); render(); toast(isNew ? 'Added' : 'Updated');
-    } }, isNew ? 'Add' : 'Save'),
-    isNew ? null : del));
-}
-
 /* ================= Memories ================= */
 async function decodeImage(file) {
   try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch { /* older Safari: fall back below */ }
   const url = URL.createObjectURL(file);
   try { const img = new Image(); img.src = url; await img.decode(); return img; } finally { setTimeout(() => URL.revokeObjectURL(url), 1000); }
 }
-async function downscaleToJpeg(file, max = 2048, quality = 0.85) {
+async function downscaleToJpeg(file, max = 2048, quality = 0.8) {
   const src = await decodeImage(file);
   const w0 = src.width || src.naturalWidth; const h0 = src.height || src.naturalHeight;
   if (!w0 || !h0) throw new Error('That photo couldn’t be read. Try another one.');
@@ -729,28 +475,134 @@ const memPaths = (m) => (Array.isArray(m.photo_paths) && m.photo_paths.length ? 
 function pickPhotos(onFiles, max = MAX_PHOTOS) {
   const input = h('input', { type: 'file', accept: 'image/*', multiple: true, class: 'hidden' });
   input.addEventListener('change', () => {
-    const files = [...(input.files || [])].filter((f) => !f.type || f.type.startsWith('image/'));
+    let skippedVideo = false;
+    const files = [...(input.files || [])].filter((f) => {
+      if (f.type.startsWith('video/')) { skippedVideo = true; return false; }
+      return !f.type || f.type.startsWith('image/');
+    });
     input.remove();
+    if (skippedVideo) toast('Photos only — videos would fill up the book’s free storage.');
     if (files.length > max) toast(`Up to ${MAX_PHOTOS} photos per memory, so the first ${max} were added.`);
     if (files.length) onFiles(files.slice(0, max));
   });
   document.body.append(input); input.click();
 }
-// full-screen photo viewer: swipe sideways between photos, tap ✕ (or Escape) to close
+
+function attachZoom(slide, img) {
+  let scale = 1, tx = 0, ty = 0, startDist = 0, startScale = 1, lastTap = 0;
+  let panning = false, panX = 0, panY = 0, startTx = 0, startTy = 0;
+  const strip = () => slide.parentElement;
+  const apply = () => {
+    img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    slide.dataset.zoomed = scale > 1 ? '1' : '';
+    const el = strip();
+    if (el) el.style.overflowX = scale > 1 ? 'hidden' : '';
+  };
+  slide.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+      startDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      startScale = scale;
+    } else if (e.touches.length === 1) {
+      const t = Date.now();
+      if (t - lastTap < 280) {
+        if (scale > 1) { scale = 1; tx = 0; ty = 0; } else scale = 2.4;
+        apply();
+      }
+      lastTap = t;
+      if (scale > 1) { panning = true; panX = e.touches[0].clientX; panY = e.touches[0].clientY; startTx = tx; startTy = ty; }
+    }
+  }, { passive: true });
+  slide.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 2 && startDist) {
+      const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      scale = Math.min(4, Math.max(1, startScale * (d / Math.max(1, startDist))));
+      if (scale === 1) { tx = 0; ty = 0; }
+      apply();
+    } else if (panning && e.touches.length === 1 && scale > 1) {
+      tx = startTx + (e.touches[0].clientX - panX);
+      ty = startTy + (e.touches[0].clientY - panY);
+      apply();
+    }
+  }, { passive: true });
+  slide.addEventListener('touchend', () => { panning = false; if (scale <= 1) { scale = 1; tx = 0; ty = 0; apply(); } }, { passive: true });
+}
+
 let viewerEl = null;
-function closeViewer() { if (!viewerEl) return; viewerEl.remove(); viewerEl = null; if (!sheetEl) document.body.classList.remove('sheet-open'); }
+function closeViewer() {
+  if (!viewerEl) return;
+  viewerEl.dispatchEvent(new Event('wb-close'));
+  viewerEl.remove(); viewerEl = null;
+  if (!sheetEl) document.body.classList.remove('sheet-open');
+}
 function openViewer(paths, start = 0) {
   closeViewer();
   const count = h('span', { class: 'viewer-count' }, paths.length > 1 ? `${start + 1} / ${paths.length}` : '');
-  const strip = h('div', { class: 'viewer-strip' }, paths.map((p) => h('div', { class: 'viewer-slide' }, photoImg(p, 'viewer-img'))));
+  const slides = paths.map((p) => {
+    const img = photoImg(p, 'viewer-img');
+    const slide = h('div', { class: 'viewer-slide' }, img);
+    attachZoom(slide, img);
+    return slide;
+  });
+  const strip = h('div', { class: 'viewer-strip' }, slides);
   strip.addEventListener('scroll', () => { const k = Math.round(strip.scrollLeft / Math.max(1, strip.clientWidth)); if (paths.length > 1) count.textContent = `${k + 1} / ${paths.length}`; }, { passive: true });
+  const step = (dir) => { strip.scrollBy({ left: dir * strip.clientWidth, behavior: 'smooth' }); };
   viewerEl = h('div', { class: 'viewer', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Photos' },
     h('div', { class: 'viewer-bar' }, count, h('button', { class: 'icon', 'aria-label': 'Close', onclick: closeViewer }, '✕')), strip);
+  viewerEl.addEventListener('wb-step', (e) => step(e.detail));
   document.body.append(viewerEl); document.body.classList.add('sheet-open');
   requestAnimationFrame(() => { strip.scrollLeft = start * strip.clientWidth; });
 }
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeViewer(); });
+function openSlideshow(slides, title) {
+  if (!slides.length) return;
+  closeViewer();
+  let i = 0, timer = null, playing = false;
+  const img = h('img', { class: 'viewer-img', alt: '' });
+  const cap = h('div', { class: 'recap-cap' });
+  const count = h('span', { class: 'viewer-count' });
+  const playBtn = h('button', { type: 'button', class: 'icon', 'aria-label': 'Play' }, '▶');
+  const show = (n) => {
+    i = (n + slides.length) % slides.length;
+    const s = slides[i];
+    count.textContent = `${title ? `${title} · ` : ''}${i + 1} / ${slides.length}`;
+    photoUrl(s.path).then((u) => { if (img.isConnected && u) img.src = u; });
+    cap.replaceChildren(
+      h('div', { class: 'recap-date' }, [fmtDate(s.date, { weekday: 'short', month: 'short', day: 'numeric' }), s.age ? ` · ${s.age}` : ''].filter(Boolean).join('')),
+      s.caption ? h('p', null, s.caption) : null);
+  };
+  const stop = () => { if (timer) clearInterval(timer); timer = null; playing = false; playBtn.textContent = '▶'; playBtn.setAttribute('aria-label', 'Play'); };
+  const start = () => {
+    stop(); playing = true; playBtn.textContent = '❚❚'; playBtn.setAttribute('aria-label', 'Pause');
+    timer = setInterval(() => show(i + 1), 3200);
+  };
+  playBtn.addEventListener('click', () => { if (playing) stop(); else { show(i + 1); start(); } });
+  const go = (dir) => { show(i + dir); if (playing) start(); };
+  let x0 = null;
+  const stage = h('div', { class: 'viewer-slide recap-slide' }, img, cap,
+    slides.length > 1 ? h('button', { type: 'button', class: 'recap-nav prev', 'aria-label': 'Previous', onclick: () => go(-1) }, '‹') : null,
+    slides.length > 1 ? h('button', { type: 'button', class: 'recap-nav next', 'aria-label': 'Next', onclick: () => go(1) }, '›') : null);
+  stage.addEventListener('touchstart', (e) => { if (e.touches.length === 1) x0 = e.touches[0].clientX; }, { passive: true });
+  stage.addEventListener('touchend', (e) => {
+    if (x0 == null) return;
+    const dx = e.changedTouches[0].clientX - x0; x0 = null;
+    if (Math.abs(dx) > 40) go(dx < 0 ? 1 : -1);
+  });
+  viewerEl = h('div', { class: 'viewer recap', role: 'dialog', 'aria-modal': 'true', 'aria-label': title || 'Recap' },
+    h('div', { class: 'viewer-bar' }, count, h('div', { class: 'row tight' }, playBtn, h('button', { class: 'icon', 'aria-label': 'Close', onclick: () => { stop(); closeViewer(); } }, '✕'))),
+    stage);
+  viewerEl.addEventListener('wb-close', stop);
+  viewerEl.addEventListener('wb-step', (e) => go(e.detail));
+  document.body.append(viewerEl); document.body.classList.add('sheet-open');
+  show(0);
+  if (!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) start();
+}
+document.addEventListener('keydown', (e) => {
+  if (!viewerEl) return;
+  if (e.key === 'Escape') closeViewer();
+  if (e.key === 'ArrowLeft') viewerEl.dispatchEvent(new CustomEvent('wb-step', { detail: -1 }));
+  if (e.key === 'ArrowRight') viewerEl.dispatchEvent(new CustomEvent('wb-step', { detail: 1 }));
+});
 window.addEventListener('hashchange', closeViewer);
+
 function memoryPhotos(m) {
   const paths = memPaths(m);
   if (!paths.length) return null;
@@ -759,26 +611,157 @@ function memoryPhotos(m) {
   return h('div', { class: `mem-grid n${Math.min(paths.length, 4)}` }, shown.map((p, k) => h('button', { type: 'button', class: 'mem-cell', 'aria-label': `Photo ${k + 1} of ${paths.length}`, onclick: (e) => { e.stopPropagation(); openViewer(paths, k); } },
     photoImg(p, 'mem-thumb'), k === 3 && paths.length > 4 ? h('span', { class: 'mem-more' }, `+${paths.length - 4}`) : null)));
 }
+
+const heartsFor = (id) => S.rows.wb_memory_hearts.filter((x) => x.memory_id === id);
+const commentsFor = (id) => S.rows.wb_memory_comments.filter((x) => x.memory_id === id);
+const myHeart = (id) => heartsFor(id).find((x) => x.user_id === S.session.user.id);
+function toggleHeart(id) {
+  buzz();
+  const mine = myHeart(id);
+  if (mine) remove('wb_memory_hearts', mine.id);
+  else save('wb_memory_hearts', { id: uuid(), memory_id: id, user_id: S.session.user.id, created_at: isoNow() });
+}
+function heartNames(id) {
+  return heartsFor(id).map((x) => whoName(x.user_id)).filter(Boolean);
+}
+function heartBtn(id, { stop = true } = {}) {
+  const mine = !!myHeart(id);
+  const names = heartNames(id);
+  return h('button', { type: 'button', class: 'heart-btn' + (mine ? ' on' : ''), 'aria-pressed': String(mine), 'aria-label': mine ? 'Remove heart' : 'Heart this memory', onclick: (e) => { if (stop) e.stopPropagation(); toggleHeart(id); render(); } },
+    mine ? '💙' : '♡', h('span', null, names.length ? names.join(' · ') : 'Love this'));
+}
+function memoriesOn(day) { return S.rows.wb_memories.filter((m) => m.happened_on === day); }
+function lookingBack() {
+  const today = localDay();
+  const cards = [];
+  const birthYear = S.family.birth_date ? parseDate(S.family.birth_date).getFullYear() : new Date().getFullYear();
+  for (let y = new Date().getFullYear() - 1; y >= birthYear; y--) {
+    const day = `${y}-${today.slice(5)}`;
+    const mems = memoriesOn(day);
+    if (mems.length) cards.push({ title: y === new Date().getFullYear() - 1 ? 'On this day last year' : `On this day in ${y}`, day, mems });
+  }
+  const monthAgo = (() => { const d = new Date(); d.setMonth(d.getMonth() - 1); return localDay(d); })();
+  if (monthAgo !== today) {
+    const mems = memoriesOn(monthAgo);
+    if (mems.length) cards.push({ title: 'One month ago', day: monthAgo, mems });
+  }
+  const weekAgo = (() => { const d = new Date(); d.setDate(d.getDate() - 7); return localDay(d); })();
+  const weekMems = memoriesOn(weekAgo);
+  if (weekMems.length) cards.push({ title: 'One week ago', day: weekAgo, mems: weekMems });
+  return cards;
+}
+function lookbackCards() {
+  return lookingBack().slice(0, 2).map((c) => {
+    const m = c.mems[0];
+    const path = memPaths(m)[0];
+    return h('article', { class: 'card lookback', onclick: () => memoryDetail(m) },
+      h('div', { class: 'eyebrow' }, c.title),
+      h('div', { class: 'lookback-row' },
+        path ? h('div', { class: 'lookback-thumb' }, photoImg(path, 'lookback-img')) : null,
+        h('div', { class: 'lookback-text' },
+          h('div', { class: 'memory-date' }, h('span', null, fmtDate(c.day, { month: 'short', day: 'numeric', year: 'numeric' })), ageAt(c.day) ? h('span', { class: 'chip' }, ageAt(c.day)) : null),
+          m.caption ? h('p', { class: 'caption' }, m.caption) : null,
+          c.mems.length > 1 ? h('p', { class: 'small muted' }, `and ${c.mems.length - 1} more`) : null)));
+  });
+}
+function monthPhotoCount(mems) { return mems.reduce((n, m) => n + memPaths(m).length, 0); }
+function playMonthRecap(mems, month) {
+  const chrono = [...mems].sort((a, b) => cmp(a.happened_on, b.happened_on) || cmp(a.created_at, b.created_at));
+  const slides = [];
+  for (const m of chrono) {
+    for (const p of memPaths(m)) slides.push({ path: p, caption: m.caption, date: m.happened_on, age: ageAt(m.happened_on) });
+  }
+  if (!slides.length) return toast('No photos in that month yet.');
+  openSlideshow(slides, month);
+}
 function renderPhotos() {
   const mems = S.rows.wb_memories;
+  const photoCount = monthPhotoCount(mems);
+  const latest = mems.find((m) => memPaths(m).length);
+  const hero = latest
+    ? h('section', { class: 'mem-hero', onclick: () => memoryDetail(latest) },
+      photoImg(memPaths(latest)[0], 'mem-hero-photo'),
+      h('div', { class: 'mem-hero-fade' },
+        h('div', { class: 'mem-hero-name' }, babyName()),
+        h('div', { class: 'mem-hero-age' }, ageText(S.family.birth_date) || `${babyName()}’s Book`),
+        h('div', { class: 'mem-hero-meta' }, `${mems.length} memor${mems.length === 1 ? 'y' : 'ies'} · ${photoCount} photo${photoCount === 1 ? '' : 's'}`)))
+    : null;
+  const empty = h('section', { class: 'hero-card' }, h('div', { class: 'eyebrow' }, 'Memories'), h('div', { class: 'big small-big' }, `${babyName()}’s first moments`), h('p', { class: 'sub' }, 'Add photos or a little note. Only you two can see them.'));
   const byMonth = groupBy(mems, (m) => fmtDate(m.happened_on, { month: 'long', year: 'numeric' }));
-  const main = mems.length
-    ? [...byMonth].map(([month, xs]) => h('section', { class: 'timeline' }, h('h2', { class: 'month' }, month),
-      xs.map((m) => { const by = whoName(m.created_by); return h('article', { class: 'memory', onclick: () => memorySheet(m, null) },
-        memoryPhotos(m),
-        h('div', { class: 'memory-body' },
-          h('div', { class: 'memory-date' }, h('span', null, fmtDate(m.happened_on, { weekday: 'short', month: 'short', day: 'numeric' })), ageAt(m.happened_on) ? h('span', { class: 'chip' }, ageAt(m.happened_on)) : null, by ? h('span', { class: 'memory-by' }, `by ${by}`) : null),
-          m.caption ? h('p', { class: 'caption' }, m.caption) : null)); })))
-    : [h('section', { class: 'hero-card' }, h('div', { class: 'eyebrow' }, 'Memories'), h('div', { class: 'big small-big' }, `${babyName()}’s first moments`), h('p', { class: 'sub' }, 'Add photos or a little note. Only you two can see them.'))];
+  const timeline = [...byMonth].map(([month, xs]) => {
+    const n = monthPhotoCount(xs);
+    return h('section', { class: 'timeline' },
+      h('div', { class: 'month-head' },
+        h('h2', { class: 'month' }, month),
+        n >= 2 ? h('button', { type: 'button', class: 'ghost recap-btn', onclick: () => playMonthRecap(xs, month) }, '▶ Recap') : null),
+      xs.map((m) => {
+        const by = whoName(m.created_by);
+        const nC = commentsFor(m.id).length;
+        return h('article', { class: 'memory', onclick: () => memoryDetail(m) },
+          memoryPhotos(m),
+          h('div', { class: 'memory-body' },
+            h('div', { class: 'memory-date' }, h('span', null, fmtDate(m.happened_on, { weekday: 'short', month: 'short', day: 'numeric' })), ageAt(m.happened_on) ? h('span', { class: 'chip' }, ageAt(m.happened_on)) : null, by ? h('span', { class: 'memory-by' }, `by ${by}`) : null),
+            m.caption ? h('p', { class: 'caption' }, m.caption) : null,
+            h('div', { class: 'mem-social' },
+              heartBtn(m.id),
+              h('span', { class: 'mem-cmt' }, nC ? `💬 ${nC}` : '💬'))));
+      }));
+  });
+  const main = mems.length ? [hero, ...lookbackCards(), ...timeline].filter(Boolean) : [empty];
   const dock = h('div', { class: 'dock-row two' },
     h('button', { class: 'side-btn start suggest', onclick: () => pickPhotos((files) => memorySheet(null, files)) }, h('span', { class: 'letter emoji' }, '📷'), h('span', { class: 'lbl' }, 'Add photos')),
     h('button', { class: 'side-btn', onclick: () => memorySheet(null, null) }, h('span', { class: 'letter emoji' }, '✎'), h('span', { class: 'lbl' }, 'Write a note')));
   mount('photos', { title: 'Memories', sub: ageText(S.family.birth_date) || `${babyName()}’s Book`, main, dock });
 }
+function memoryDetail(m) {
+  const get = () => S.rows.wb_memories.find((x) => x.id === m.id) || m;
+  const box = h('div', { class: 'stack' });
+  const draw = () => {
+    const cur = get();
+    const paths = memPaths(cur);
+    const names = heartNames(cur.id);
+    const mine = !!myHeart(cur.id);
+    const cs = commentsFor(cur.id);
+    const input = h('input', { type: 'text', maxlength: '400', placeholder: 'A little note…', 'aria-label': 'Comment' });
+    const send = () => {
+      const text = input.value.trim();
+      if (!text) return;
+      save('wb_memory_comments', { id: uuid(), memory_id: cur.id, body: text, created_by: S.session.user.id, created_at: isoNow() });
+      input.value = '';
+      draw(); renderSoon();
+    };
+    box.replaceChildren(
+      paths.length ? memoryPhotos(cur) : null,
+      h('div', { class: 'memory-date' },
+        h('span', null, fmtDate(cur.happened_on, { weekday: 'short', month: 'short', day: 'numeric' })),
+        ageAt(cur.happened_on) ? h('span', { class: 'chip' }, ageAt(cur.happened_on)) : null,
+        whoName(cur.created_by) ? h('span', { class: 'memory-by' }, `by ${whoName(cur.created_by)}`) : null),
+      cur.caption ? h('p', { class: 'caption' }, cur.caption) : null,
+      h('button', { type: 'button', class: 'heart-btn' + (mine ? ' on' : ''), 'aria-pressed': String(mine), onclick: () => { toggleHeart(cur.id); draw(); renderSoon(); } },
+        mine ? '💙' : '♡', h('span', null, names.length ? names.join(' · ') : 'Love this')),
+      h('div', { class: 'comments' },
+        cs.length
+          ? cs.map((c) => h('div', { class: 'comment' },
+            h('div', { class: 'comment-meta' },
+              h('strong', null, whoName(c.created_by) || 'Parent'),
+              h('span', { class: 'muted' }, c.created_at ? fmtAgo(c.created_at) : ''),
+              h('button', { type: 'button', class: 'ghost comment-del', onclick: () => {
+                const old = { ...c };
+                remove('wb_memory_comments', c.id); draw(); renderSoon();
+                toast('Comment removed', false, { label: 'Undo', onClick: () => { save('wb_memory_comments', old); draw(); renderSoon(); } });
+              } }, 'Remove')),
+            h('p', null, c.body)))
+          : h('p', { class: 'small muted' }, 'No notes yet.')),
+      h('div', { class: 'comment-add' }, input, h('button', { type: 'button', class: 'secondary', onclick: send }, 'Add')),
+      h('button', { type: 'button', class: 'secondary block', onclick: () => memorySheet(cur, null) }, 'Edit memory'));
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); send(); } });
+  };
+  draw();
+  openSheet('Memory', box);
+}
 function memorySheet(m, files) {
   const isNew = !m;
   const base = m || { id: uuid(), happened_on: localDay(), caption: null, photo_path: null, photo_paths: null };
-  // photos in order: existing ones (path) and new ones (file, preview url, path once uploaded)
   let items = memPaths(base).map((path) => ({ path }));
   const addFiles = (fs) => { for (const file of fs) if (items.length < MAX_PHOTOS) items.push({ file, url: URL.createObjectURL(file) }); drawGrid(); };
   const cleanup = () => { for (const it of items) if (it.url) URL.revokeObjectURL(it.url); };
@@ -818,7 +801,6 @@ function memorySheet(m, files) {
       save('wb_memories', { ...base, happened_on: date.value || localDay(), caption, photo_path: paths[0] || null, photo_paths: paths.length ? paths : null, ...(isNew ? { created_by: S.session.user.id, created_at: isoNow() } : {}) });
       cleanup(); closeSheet(); render(); toast(isNew ? 'Memory saved 💙' : 'Saved');
     } catch (err) {
-      // photos that already made it up keep their path, so "Save" again only uploads the rest
       bar.classList.add('hidden');
       status.className = 'msg error'; status.textContent = isNetworkError(err) ? 'Photos need a connection. Try again in a moment.' : friendlyError(err);
       btn.disabled = false;
@@ -832,11 +814,175 @@ function memorySheet(m, files) {
     cleanup(); closeSheet(); render(); toast('Memory deleted');
   }));
   const by = isNew ? null : whoName(base.created_by);
-  openSheet(isNew ? 'New memory' : 'Memory', h('div', { class: 'stack' },
+  openSheet(isNew ? 'New memory' : 'Edit memory', h('div', { class: 'stack' },
     grid, count,
     field('Caption', cap), field('Date', date),
     by ? h('p', { class: 'small muted' }, `Saved by ${by}`) : null,
     status, bar, btn, isNew ? null : del), { onClose: cleanup });
+}
+
+/* ================= Firsts ================= */
+const FIRSTS = [
+  ['smile', 'First smile'],
+  ['laugh', 'First laugh'],
+  ['hands', 'Found his hands'],
+  ['head_up', 'Held his head up'],
+  ['roll', 'Rolled over'],
+  ['reach', 'Reached for something'],
+  ['sit', 'Sat up'],
+  ['tooth', 'First tooth'],
+  ['crawl', 'Started crawling'],
+  ['wave', 'Waved hello'],
+  ['clap', 'Clapped'],
+  ['pull_up', 'Pulled up to stand'],
+  ['steps', 'First steps'],
+  ['word', 'First word'],
+  ['bites', 'First bites'],
+  ['haircut', 'First haircut'],
+  ['outing', 'First outing'],
+  ['birthday', 'First birthday'],
+];
+const monthTitle = (n) => (n === 1 ? 'Westley at 1 month' : `Westley at ${n} months`);
+function portraitSlot(n) {
+  const row = S.rows.wb_month_portraits.find((x) => Number(x.id) === n);
+  const label = monthTitle(n);
+  if (row) {
+    return h('button', { type: 'button', class: 'portrait', onclick: () => portraitSheet(n) },
+      photoImg(row.photo_path, 'portrait-img'),
+      h('span', { class: 'portrait-lbl' }, label));
+  }
+  return h('button', { type: 'button', class: 'portrait empty', onclick: () => portraitSheet(n) },
+    h('span', { class: 'portrait-plus' }, '+'),
+    h('span', { class: 'portrait-lbl' }, label));
+}
+function portraitSheet(n) {
+  const label = monthTitle(n);
+  const existing = S.rows.wb_month_portraits.find((x) => Number(x.id) === n);
+  let chosen = existing ? { memory_id: existing.memory_id, path: existing.photo_path } : null;
+  const box = h('div', { class: 'stack' });
+  const draw = () => {
+    const mems = S.rows.wb_memories.filter((m) => memPaths(m).length);
+    box.replaceChildren(
+      h('p', { class: 'small muted' }, `Pick a photo for “${label}”.`),
+      chosen ? photoImg(chosen.path, 'memory-photo') : null,
+      mems.length
+        ? h('div', { class: 'pick-grid' }, mems.flatMap((m) => memPaths(m).map((p) => h('button', { type: 'button', class: 'pick-cell' + (chosen?.path === p ? ' on' : ''), onclick: () => { chosen = { memory_id: m.id, path: p }; draw(); } }, photoImg(p, 'pick-img')))))
+        : h('p', { class: 'muted' }, 'Add a photo to a memory first, then come back here.'),
+      h('button', { class: 'block big', onclick: () => {
+        if (!chosen) return toast('Pick a photo first.', true);
+        save('wb_month_portraits', { id: n, memory_id: chosen.memory_id, photo_path: chosen.path, created_by: S.session.user.id });
+        closeSheet(); render(); toast('Saved 💙');
+      } }, 'Save'),
+      existing ? h('button', { type: 'button', class: 'ghost danger block', onclick: (e) => confirmDelete(e.currentTarget, 'portrait', () => { remove('wb_month_portraits', n); closeSheet(); render(); toast('Removed'); }) }, 'Remove portrait') : null);
+  };
+  draw();
+  openSheet(label, box);
+}
+function firstRow(slug, title) {
+  const row = S.rows.wb_firsts.find((x) => x.id === slug);
+  const mem = row?.memory_id ? S.rows.wb_memories.find((m) => m.id === row.memory_id) : null;
+  const path = mem ? memPaths(mem)[0] : null;
+  const when = row?.happened_on
+    ? [fmtDate(row.happened_on, { month: 'short', day: 'numeric' }), ageAt(row.happened_on) ? ageAt(row.happened_on) : '', row.note || ''].filter(Boolean).join(' · ')
+    : '';
+  return h('div', { class: 'qrow' + (row ? ' done' : '') },
+    h('button', { type: 'button', class: 'check', 'aria-label': row ? `Edit ${title}` : `Mark ${title}`, onclick: () => {
+      if (row) return firstSheet(slug, title);
+      save('wb_firsts', { id: slug, happened_on: localDay(), memory_id: null, note: null, created_by: S.session.user.id });
+      render();
+    } }, row ? '✓' : ''),
+    h('button', { type: 'button', class: 'qtext', onclick: () => firstSheet(slug, title) }, title, when ? h('span', { class: 'answer' }, when) : null),
+    path ? h('button', { type: 'button', class: 'first-thumb', 'aria-label': 'Open linked memory', onclick: () => memoryDetail(mem) }, photoImg(path, 'first-thumb-img')) : null);
+}
+function firstSheet(slug, title) {
+  const existing = S.rows.wb_firsts.find((x) => x.id === slug);
+  let linked = existing?.memory_id ? S.rows.wb_memories.find((m) => m.id === existing.memory_id) : null;
+  const date = h('input', { type: 'date', value: existing?.happened_on || localDay(), max: localDay() });
+  const note = h('textarea', { maxlength: '500', rows: '2', placeholder: 'A little note (optional)' }, existing?.note || '');
+  const linkBox = h('div', { class: 'stack tight' });
+  let picking = false;
+  const drawLink = () => {
+    if (picking) {
+      const mems = S.rows.wb_memories;
+      linkBox.replaceChildren(
+        h('p', { class: 'small muted' }, mems.length ? 'Tap a memory to link it.' : 'No memories yet.'),
+        ...mems.map((m) => h('button', { type: 'button', class: 'pick-mem', onclick: () => { linked = m; if (m.happened_on) date.value = m.happened_on; picking = false; drawLink(); } },
+          memPaths(m)[0] ? photoImg(memPaths(m)[0], 'pick-mem-img') : h('div', { class: 'pick-mem-img missing' }),
+          h('span', { class: 'pick-mem-text' }, h('strong', null, fmtDate(m.happened_on, { month: 'short', day: 'numeric' })), m.caption ? h('span', { class: 'muted' }, m.caption) : null))),
+        h('button', { type: 'button', class: 'ghost', onclick: () => { picking = false; drawLink(); } }, 'Cancel'));
+      return;
+    }
+    if (linked) {
+      const path = memPaths(linked)[0];
+      linkBox.replaceChildren(
+        h('div', { class: 'pick-mem static' }, path ? photoImg(path, 'pick-mem-img') : h('div', { class: 'pick-mem-img missing' }), h('span', { class: 'pick-mem-text' }, h('strong', null, linked.caption || fmtDate(linked.happened_on)), h('span', { class: 'muted' }, fmtDate(linked.happened_on, { month: 'short', day: 'numeric' })))),
+        h('div', { class: 'grid2' },
+          h('button', { type: 'button', class: 'secondary', onclick: () => { picking = true; drawLink(); } }, 'Change'),
+          h('button', { type: 'button', class: 'ghost', onclick: () => { linked = null; drawLink(); } }, 'Unlink')));
+    } else {
+      linkBox.replaceChildren(h('button', { type: 'button', class: 'secondary block', onclick: () => { picking = true; drawLink(); } }, 'Link a memory'));
+    }
+  };
+  drawLink();
+  const btn = h('button', { class: 'block big' }, 'Save');
+  btn.addEventListener('click', () => {
+    const happened = date.value || null;
+    if (!happened && !linked) return toast('Add a date or link a memory.', true);
+    save('wb_firsts', { id: slug, happened_on: happened || linked?.happened_on || localDay(), memory_id: linked?.id || null, note: note.value.trim() || null, created_by: existing?.created_by || S.session.user.id });
+    closeSheet(); render(); toast('Saved 💙');
+  });
+  const clear = h('button', { type: 'button', class: 'ghost danger block' }, 'Clear this first');
+  clear.addEventListener('click', () => confirmDelete(clear, 'first', () => { remove('wb_firsts', slug); closeSheet(); render(); toast('Cleared'); }));
+  openSheet(title, h('div', { class: 'stack' }, field('Date', date), field('Note', note), h('p', { class: 'small label' }, 'Memory'), linkBox, btn, existing ? clear : null));
+}
+function renderFirsts() {
+  const marked = FIRSTS.filter(([slug]) => S.rows.wb_firsts.some((r) => r.id === slug)).length;
+  const portraits = h('section', { class: 'card stack' },
+    h('h2', null, 'Monthly portraits'),
+    h('p', { class: 'small muted' }, `A photo of ${babyName()} at each month this year.`),
+    h('div', { class: 'portraits' }, Array.from({ length: 12 }, (_, i) => portraitSlot(i + 1))));
+  const list = h('section', { class: 'card list' },
+    h('div', { class: 'list-head' }, h('h2', null, 'First-year firsts'), h('span', { class: 'small muted' }, `${marked} of ${FIRSTS.length}`)),
+    FIRSTS.map(([slug, title]) => firstRow(slug, title)));
+  mount('firsts', { title: 'Firsts', sub: `${babyName()}’s first year`, main: [portraits, list] });
+}
+
+/* ================= Letters ================= */
+function renderLetters() {
+  const letters = S.rows.wb_letters;
+  const main = letters.length
+    ? letters.map((row) => h('article', { class: 'letter-card', onclick: () => letterRead(row) },
+      h('div', { class: 'memory-date' }, h('span', null, fmtDate(row.written_on, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })), whoName(row.created_by) ? h('span', { class: 'memory-by' }, whoName(row.created_by)) : null),
+      h('p', { class: 'letter-preview' }, previewText(row.body))))
+    : [h('section', { class: 'hero-card' }, h('div', { class: 'eyebrow' }, 'A private time capsule'), h('div', { class: 'big small-big' }, `Letters to ${babyName()}`), h('p', { class: 'sub' }, 'Write him something he’ll read someday. Only the two of you can see these.'))];
+  mount('letters', { title: 'Letters', sub: `For ${babyName()}, from you`, main, dock: h('button', { class: 'stop-btn go', onclick: () => letterSheet(null) }, 'Write a letter') });
+}
+function letterRead(row) {
+  const cur = () => S.rows.wb_letters.find((x) => x.id === row.id) || row;
+  const r = cur();
+  openSheet('Letter', h('div', { class: 'stack' },
+    h('div', { class: 'memory-date' }, h('span', null, fmtDate(r.written_on, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })), whoName(r.created_by) ? h('span', { class: 'memory-by' }, whoName(r.created_by)) : null),
+    h('p', { class: 'letter-body' }, r.body),
+    h('button', { type: 'button', class: 'secondary block', onclick: () => letterSheet(r) }, 'Edit'),
+    (() => {
+      const del = h('button', { type: 'button', class: 'ghost danger block' }, 'Delete letter');
+      del.addEventListener('click', () => confirmDelete(del, 'letter', () => { remove('wb_letters', r.id); closeSheet(); render(); toast('Letter deleted'); }));
+      return del;
+    })()));
+}
+function letterSheet(row) {
+  const isNew = !row;
+  const base = row || { id: uuid(), written_on: localDay(), body: '' };
+  const date = h('input', { type: 'date', value: base.written_on, max: localDay() });
+  const body = h('textarea', { maxlength: '10000', rows: '12', placeholder: `Dear ${babyName()},…` }, base.body || '');
+  const btn = h('button', { class: 'block big' }, isNew ? 'Save letter' : 'Save');
+  btn.addEventListener('click', () => {
+    const text = body.value.trim();
+    if (!text) return toast('Write a few words for him.', true);
+    save('wb_letters', { ...base, written_on: date.value || localDay(), body: text, ...(isNew ? { created_by: S.session.user.id, created_at: isoNow() } : {}) });
+    closeSheet(); render(); toast(isNew ? 'Letter saved 💙' : 'Saved');
+  });
+  openSheet(isNew ? 'New letter' : 'Edit letter', h('div', { class: 'stack' }, field('Date', date), field('Letter', body), btn));
 }
 
 /* ================= Doctor ================= */
@@ -1004,169 +1150,6 @@ function visitSheet(x) {
     isNew ? null : del));
 }
 
-/* ================= Meds ================= */
-// Schedules: 'interval' = every N hours from the last dose; 'daily' = once a day at remind_at;
-// 'every_other_day' = remind_at two days after the last dose; 'twice_daily' = a morning dose at remind_at and a
-// night dose at remind_at2 (a dose taken before the midpoint of the two times counts as the morning one). Mirrors private.wb_med_due_at() in the database,
-// which sends the push reminders (one per due dose, to every parent phone with notifications on).
-const meds = () => S.rows.wb_meds;
-const medDoses = (m) => S.rows.wb_med_doses.filter((d) => d.med_id === m.id);
-const hhmm = (t) => String(t || '09:00').slice(0, 5);
-function atClock(dayMs, t) { const [H, M] = hhmm(t).split(':').map(Number); const d = new Date(dayMs); d.setHours(H, M, 0, 0); return d.getTime(); }
-function dayStart(tsMs, plusDays = 0) { const d = new Date(tsMs); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + plusDays); return d.getTime(); }
-const fmtClock = (t) => new Date(atClock(now(), t)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-const fmtHours = (h) => { const n = +h; return n === 1 ? 'hour' : `${+n.toFixed(1)} hours`; };
-function medSchedText(m) {
-  if (m.schedule === 'interval') return `Every ${fmtHours(m.every_hours)}`;
-  if (m.schedule === 'every_other_day') return `Every other day · ${fmtClock(m.remind_at)}`;
-  if (m.schedule === 'twice_daily') { const [a, b] = twiceTimes(m); return `Twice daily · ${fmtClock(a)} & ${fmtClock(b)}`; }
-  return `Daily · ${fmtClock(m.remind_at)}`;
-}
-const twiceTimes = (m) => [hhmm(m.remind_at), hhmm(m.remind_at2 || '20:00')].sort();
-// today's two slots, which are done, and what's next: { due, slot: 'morning'|'night', mDone, nDone }
-function twiceState(m) {
-  const [a, b] = twiceTimes(m); const t0 = startOfToday();
-  const t1 = atClock(t0, a); const t2 = atClock(t0, b); const mid = t1 + (t2 - t1) / 2;
-  const today = medDoses(m).map((d) => ms(d.taken_at)).filter((t) => t >= t0 && t <= now() + 60000);
-  const mDone = today.some((t) => t < mid); const nDone = today.some((t) => t >= mid);
-  if (nDone) return { due: atClock(dayStart(now(), 1), a), slot: 'morning', mDone, nDone, tomorrow: true };
-  if (mDone || now() >= mid) return { due: t2, slot: 'night', mDone, nDone };
-  return { due: t1, slot: 'morning', mDone, nDone };
-}
-function medDue(m) {
-  const last = medDoses(m)[0]; const lastMs = last ? ms(last.taken_at) : null;
-  if (m.schedule === 'twice_daily') return twiceState(m).due;
-  if (m.schedule === 'interval') return lastMs == null ? null : lastMs + (+m.every_hours) * 3600000;
-  if (m.schedule === 'every_other_day') return atClock(lastMs == null ? startOfToday() : dayStart(lastMs, 2), m.remind_at);
-  const doneToday = lastMs != null && lastMs >= startOfToday();
-  return atClock(dayStart(now(), doneToday ? 1 : 0), m.remind_at);
-}
-function fmtWhen(tsMs) {
-  const t = new Date(tsMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  const d = dayStart(tsMs);
-  if (d === startOfToday()) return t;
-  if (d === dayStart(now(), 1)) return `tomorrow ${t}`;
-  if (d === dayStart(now(), -1)) return `yesterday ${t}`;
-  return `${new Date(tsMs).toLocaleDateString([], { weekday: 'short' })} ${t}`;
-}
-// { state: 'due' | 'soon' | 'done' | 'later' | 'none', label }
-function medStatus(m) {
-  const due = medDue(m); const last = medDoses(m)[0];
-  const takenToday = last && ms(last.taken_at) >= startOfToday();
-  if (due == null) return { state: 'none', label: 'Not taken yet' };
-  if (m.schedule === 'twice_daily') {
-    const t = twiceState(m);
-    if (t.due <= now()) return { state: 'due', label: 'Due now' };
-    if (t.mDone && t.nDone) return { state: 'done', label: 'Done today' };
-    if (t.tomorrow) return { state: 'later', label: 'Tomorrow' };
-    return { state: 'soon', label: `Due at ${fmtClock(new Date(t.due).toTimeString().slice(0, 5))}` };
-  }
-  if (due <= now()) return { state: 'due', label: 'Due now' };
-  if (m.schedule !== 'interval' && takenToday) return { state: 'done', label: 'Done today' };
-  if (m.schedule === 'every_other_day' && dayStart(due) !== startOfToday()) return { state: 'later', label: dayStart(due) === dayStart(now(), 1) ? 'Tomorrow' : 'Not today' };
-  return { state: 'soon', label: `Due in ${fmtDur(due - now())}` };
-}
-function takeMed(m) {
-  buzz();
-  const row = { id: uuid(), med_id: m.id, taken_at: isoNow(), created_by: S.session.user.id };
-  save('wb_med_doses', row); render();
-  toast(`${m.name} · ${fmtTime(row.taken_at)}`, false, { label: 'Undo', onClick: () => { remove('wb_med_doses', row.id); render(); } });
-}
-const whoName = (uid) => S.parents.find((p) => p.user_id === uid)?.display_name || '';
-function medCard(m) {
-  const st = medStatus(m); const doses = medDoses(m); const last = doses[0]; const due = medDue(m);
-  const lastLine = last ? `Last dose ${fmtWhen(ms(last.taken_at))} · ${fmtAgo(last.taken_at)}` : 'No doses logged yet';
-  const tw = m.schedule === 'twice_daily' ? twiceState(m) : null;
-  const nextLine = tw ? `${st.state === 'due' ? 'Now' : 'Next'}: ${tw.slot} dose${st.state === 'due' ? '' : ` ${fmtWhen(due)}`}`
-    : due != null && st.state !== 'due' ? `Next ${fmtWhen(due)}` : null;
-  return h('section', { class: `card med med-${st.state}` },
-    h('button', { class: 'med-head', onclick: () => medSheet(m), 'aria-label': `Edit ${m.name}` },
-      h('span', { class: 'med-title' }, h('strong', null, m.name), h('span', { class: 'med-who' }, `${m.for_whom}${m.reminders_on ? '' : ' · reminders off'}`)),
-      h('span', { class: `chip med-chip ${st.state}` }, st.label)),
-    h('p', { class: 'med-meta' }, medSchedText(m), nextLine ? ` · ${nextLine}` : ''),
-    h('p', { class: 'med-meta' }, lastLine),
-    tw ? h('p', { class: 'med-slots' }, h('span', { class: tw.mDone ? 'ok' : '' }, `${tw.mDone ? '✓' : '○'} Morning`), h('span', { class: tw.nDone ? 'ok' : '' }, `${tw.nDone ? '✓' : '○'} Night`)) : null,
-    h('div', { class: 'med-actions' },
-      h('button', { class: 'big take' + (st.state === 'due' || st.state === 'none' ? '' : ' secondary'), onclick: () => takeMed(m) }, '✓  Took it'),
-      h('button', { class: 'secondary big more', onclick: () => medSheet(m), 'aria-label': `${m.name} history and settings` }, 'History')),
-    doses.length ? h('p', { class: 'med-hist' }, doses.slice(0, 3).map((d) => fmtWhen(ms(d.taken_at))).join(' · ')) : null);
-}
-function renderMeds() {
-  const list = meds();
-  const dueNow = list.filter((m) => medStatus(m).state === 'due');
-  const intro = h('section', { class: 'hero-card med-hero' },
-    h('div', { class: 'eyebrow' }, 'Medicine'),
-    h('div', { class: 'big small-big' }, dueNow.length ? `${dueNow.length} due now` : 'All caught up'),
-    h('p', { class: 'sub' }, dueNow.length ? dueNow.map((m) => m.name).join(', ') : 'Tap “Took it” after each dose.'));
-  const cards = list.length ? list.map(medCard) : [h('section', { class: 'card' }, h('p', { class: 'muted' }, 'No medicines yet.'))];
-  const add = h('button', { class: 'secondary block big', onclick: () => medSheet(null) }, '+ Add a medicine');
-  const note = h('p', { class: 'small muted center med-note' }, 'Reminders go to every phone with notifications on (Settings).');
-  mount('meds', { title: 'Meds', sub: 'Sophie & Westley', main: [intro, ...cards, add, note] });
-}
-const MED_SCHED = [['interval', 'Every few hours'], ['daily', 'Daily'], ['twice_daily', 'Twice daily'], ['every_other_day', 'Every other day']];
-function medSheet(m) {
-  const isNew = !m;
-  const base = m || { id: uuid(), name: '', for_whom: 'Sophie', schedule: 'interval', every_hours: 8, remind_at: '09:00', reminders_on: true, sort_order: (meds().reduce((n, x) => Math.max(n, x.sort_order || 0), 0) + 1) };
-  let who = base.for_whom; let sched = base.schedule; let on = base.reminders_on !== false;
-  const name = h('input', { type: 'text', maxlength: '80', placeholder: 'e.g. Ibuprofen', value: base.name || '' });
-  const people = [...new Set(['Sophie', babyName(), ...S.parents.map((p) => p.display_name), who].filter(Boolean))];
-  const hours = h('input', { type: 'number', inputmode: 'decimal', min: '0.5', max: '72', step: '0.5', value: base.every_hours ?? 8 });
-  const time = h('input', { type: 'time', value: hhmm(base.remind_at) });
-  const hourPicks = h('div', { class: 'chip-row' }, [4, 6, 8, 12, 24].map((n) => h('button', { type: 'button', class: 'pick', onclick: () => { hours.value = n; buzz(); } }, `${n}h`)));
-  const intervalBox = h('div', { class: 'stack tight' }, hourPicks, field('Every (hours)', hours, 'Counted from the last dose.'));
-  const timeBox = field('Reminder time', time);
-  const twice0 = base.schedule === 'twice_daily';
-  const timeM = h('input', { type: 'time', value: twice0 ? hhmm(base.remind_at) : '08:00' });
-  const timeN = h('input', { type: 'time', value: twice0 ? hhmm(base.remind_at2) : '20:00' });
-  const twiceBox = h('div', { class: 'grid2' }, field('Morning dose', timeM), field('Night dose', timeN));
-  const schedSeg = seg(MED_SCHED, sched, (k) => { sched = k; showSched(); }); schedSeg.classList.add('two-col');
-  const showSched = () => { intervalBox.classList.toggle('hidden', sched !== 'interval'); timeBox.classList.toggle('hidden', sched === 'interval' || sched === 'twice_daily'); twiceBox.classList.toggle('hidden', sched !== 'twice_daily'); };
-  const del = h('button', { type: 'button', class: 'ghost danger block' }, 'Remove medicine');
-  del.addEventListener('click', () => confirmDelete(del, 'medicine', () => { remove('wb_meds', base.id); S.rows.wb_med_doses = S.rows.wb_med_doses.filter((d) => d.med_id !== base.id); saveCache(); closeSheet(); render(); toast('Removed'); }));
-  const doses = isNew ? [] : medDoses(base);
-  const hist = isNew ? null : h('section', { class: 'card list med-hist-list' },
-    h('div', { class: 'list-head' }, h('h2', null, 'History'), h('button', { type: 'button', class: 'ghost', onclick: () => doseSheet(base, null) }, '+ Earlier dose')),
-    doses.length ? doses.slice(0, 30).map((d) => h('button', { type: 'button', class: 'logrow', onclick: () => doseSheet(base, d) },
-      h('span', { class: 'when' }, fmtTime(d.taken_at)), h('span', { class: 'what' }, fmtDayLabel(d.taken_at)), h('span', { class: 'dur' }, whoName(d.created_by))))
-      : h('p', { class: 'muted empty' }, 'No doses yet.'));
-  const body = h('div', { class: 'stack' },
-    hist,
-    field('Name', name),
-    h('p', { class: 'small label' }, 'For'), seg(people.map((p) => [p, p]), who, (k) => { who = k; }),
-    h('p', { class: 'small label' }, 'How often'), schedSeg,
-    intervalBox, timeBox, twiceBox,
-    h('p', { class: 'small label' }, 'Reminders'), seg([['on', 'On'], ['off', 'Off']], on ? 'on' : 'off', (k) => { on = k === 'on'; }),
-    h('button', { class: 'block big', onclick: () => {
-      const n = name.value.trim(); if (!n) return toast('Name the medicine.', true);
-      const hv = num(hours.value);
-      if (sched === 'interval' && (hv == null || Number.isNaN(hv) || hv < 0.5 || hv > 72)) return toast('Hours should be between 0.5 and 72.', true);
-      if (sched === 'twice_daily' && (!timeM.value || !timeN.value)) return toast('Pick both reminder times.', true);
-      if (sched === 'twice_daily' && timeM.value === timeN.value) return toast('Morning and night times must differ.', true);
-      if (sched !== 'interval' && sched !== 'twice_daily' && !time.value) return toast('Pick a reminder time.', true);
-      save('wb_meds', { ...base, name: n, for_whom: who, schedule: sched, every_hours: sched === 'interval' ? Math.round(hv * 10) / 10 : null, remind_at: sched === 'interval' ? null : sched === 'twice_daily' ? timeM.value : time.value, remind_at2: sched === 'twice_daily' ? timeN.value : null, reminders_on: on, ...(isNew ? { created_by: S.session.user.id } : {}) });
-      closeSheet(); render(); toast(isNew ? 'Added' : 'Saved');
-    } }, isNew ? 'Add medicine' : 'Save'),
-    isNew ? null : del);
-  showSched();
-  openSheet(isNew ? 'New medicine' : base.name, body);
-}
-function doseSheet(m, d) {
-  const isNew = !d;
-  const base = d || { id: uuid(), med_id: m.id, taken_at: isoNow() };
-  const at = h('input', { type: 'datetime-local', value: toLocalInput(base.taken_at) });
-  const del = h('button', { type: 'button', class: 'ghost danger block' }, 'Delete dose');
-  del.addEventListener('click', () => confirmDelete(del, 'dose', () => { remove('wb_med_doses', base.id); closeSheet(); render(); toast('Deleted', false, { label: 'Undo', onClick: () => { save('wb_med_doses', base); render(); } }); }));
-  openSheet(isNew ? `Earlier dose · ${m.name}` : `Dose · ${m.name}`, h('div', { class: 'stack' },
-    field('Taken at', at),
-    h('button', { class: 'block big', onclick: () => {
-      const t = fromLocalInput(at.value); if (!t) return toast('Pick a time.', true);
-      if (ms(t) > now() + 5 * 60000) return toast('That time is in the future.', true);
-      save('wb_med_doses', { ...base, taken_at: t, ...(isNew ? { created_by: S.session.user.id } : {}) });
-      closeSheet(); render(); toast(isNew ? 'Added' : 'Updated');
-    } }, isNew ? 'Add dose' : 'Save'),
-    isNew ? null : del));
-}
-
 /* ================= Settings ================= */
 async function saveFamily(patch) {
   const prev = S.family;
@@ -1174,7 +1157,6 @@ async function saveFamily(patch) {
   const { error } = await sb.from('wb_family').update(patch).eq('id', 1);
   if (error) { S.family = prev; render(); toast(friendlyError(error), true); }
 }
-const REMIND = [[120, '2h'], [150, '2½h'], [180, '3h'], [210, '3½h'], [240, '4h']];
 function renderSettings() {
   const f = S.family;
   const name = h('input', { type: 'text', maxlength: '60', value: f.baby_name });
@@ -1182,22 +1164,17 @@ function renderSettings() {
   const babyCard = h('section', { class: 'card stack' }, h('h2', null, 'Baby'),
     h('div', { class: 'grid2' }, field('Name', name), field('Birthday', birth)),
     h('button', { class: 'secondary', onclick: () => { const n = name.value.trim(); if (!n) return toast('Name can’t be empty.', true); saveFamily({ baby_name: n, birth_date: birth.value || null }); toast('Saved'); } }, 'Save'));
-  const remindCard = h('section', { class: 'card stack' }, h('h2', null, 'Feeding reminder'),
-    h('p', { class: 'small muted' }, `A notification when it’s been this long since the last feed started. Goes to every phone with notifications on.`),
-    seg([['off', 'Off'], ...REMIND.map(([m, l]) => [String(m), l])], f.feed_reminder_enabled ? String(f.feed_reminder_minutes) : 'off',
-      (k) => saveFamily(k === 'off' ? { feed_reminder_enabled: false } : { feed_reminder_enabled: true, feed_reminder_minutes: Number(k) })));
   const unitsCard = h('section', { class: 'card stack' }, h('h2', null, 'Units & colors'),
-    h('p', { class: 'small label' }, 'Bottles'), seg([['oz', 'oz'], ['ml', 'mL']], f.volume_unit, (k) => saveFamily({ volume_unit: k })),
     h('p', { class: 'small label' }, 'Growth'), seg([['lb', 'lb · in'], ['kg', 'kg · cm']], f.weight_unit, (k) => saveFamily({ weight_unit: k })),
     h('p', { class: 'small label' }, 'Colors (this phone)'), seg([['night', '🌙 Night'], ['day', '☀️ Day']], theme(), (k) => { localStorage.setItem('wb-theme', k); applyTheme(); render(); }));
   const acct = h('section', { class: 'card stack' }, h('h2', null, 'Account'),
     h('p', { class: 'small muted' }, `Signed in as ${S.parent.display_name} (${S.session.user.email}). Shared with ${S.parents.filter((p) => p.user_id !== S.parent.user_id).map((p) => p.display_name).join(' & ') || 'no one yet'}.`),
     outbox.length ? h('p', { class: 'small' }, `${outbox.length} change${outbox.length === 1 ? '' : 's'} waiting to sync.`) : null,
-    h('button', { class: 'secondary block', onclick: async () => { await forgetPushSub(); await sb.auth.signOut(); location.hash = '#/feed'; } }, 'Sign out'));
+    h('button', { class: 'secondary block', onclick: async () => { await forgetPushSub(); await sb.auth.signOut(); location.hash = '#/photos'; } }, 'Sign out'));
   const helpCard = h('section', { class: 'card stack' }, h('h2', null, 'Install & setup'),
-    h('p', { class: 'small muted' }, isStandalone() ? 'You’re using the Home Screen app. Here are the steps if the other phone needs them.' : 'Put Westley on your Home Screen so it opens like an app and can send reminders.'),
+    h('p', { class: 'small muted' }, isStandalone() ? 'You’re using the Home Screen app. Here are the steps if the other phone needs them.' : 'Put Westley on your Home Screen so it opens like an app.'),
     h('button', { class: 'secondary block', onclick: () => installGuide() }, icon('phone'), 'How to install'));
-  mount('settings', { title: 'Settings', sub: `${babyName()}’s Book`, main: [babyCard, remindCard, notificationsCard(), familyLinkCard(), helpCard, unitsCard, acct] });
+  mount('settings', { title: 'Settings', sub: `${babyName()}’s Book`, main: [babyCard, notificationsCard(), familyLinkCard(), helpCard, unitsCard, acct] });
 }
 
 // Grandparents link: a read-only page with Memories only (date, words, photos, who wrote it).
@@ -1270,7 +1247,7 @@ function notificationsCard() {
         try { await sub.unsubscribe(); } catch { /* ignore */ }
         toast('Notifications off on this phone.'); draw();
       });
-      return body.replaceChildren(h('div', { class: 'row' }, h('span', { class: 'chip on' }, 'On'), h('span', { class: 'small' }, 'This phone gets feeding reminders.')), h('div', { class: 'row wrap' }, test, off));
+      return body.replaceChildren(h('div', { class: 'row' }, h('span', { class: 'chip on' }, 'On'), h('span', { class: 'small' }, 'This phone is set up for notifications.')), h('div', { class: 'row wrap' }, test, off));
     }
     const on = h('button', { class: 'block' }, 'Turn on notifications');
     on.addEventListener('click', async () => {
@@ -1338,8 +1315,8 @@ function installGuide() {
       { icon: null, title: 'Open Westley from your Home Screen',
         text: 'Look for the blue W named Westley. It opens full screen, just like an app. You can close the browser tab.',
         body: [] },
-      { icon: 'bell', title: 'Turn on feeding reminders',
-        text: 'Do this inside the Home Screen app, on each phone.',
+      { icon: 'bell', title: 'Turn on notifications',
+        text: 'Optional. Do this inside the Home Screen app, on each phone, if you’d like notifications.',
         body: [h('ol', { class: 'guide-steps' },
           step(icon('gear'), ['Tap the ', h('strong', null, 'gear'), ' at the top right.']),
           step(icon('bell'), ['Tap ', k('Turn on notifications'), '.']),
@@ -1377,7 +1354,7 @@ function registerServiceWorker() {
   navigator.serviceWorker.register('sw.js').catch((e) => console.warn('service worker', e));
   navigator.serviceWorker.addEventListener('message', (e) => {
     if (e.data?.type !== 'open') return;
-    const hash = new URL(e.data.url, location.href).hash || '#/feed';
+    const hash = new URL(e.data.url, location.href).hash || '#/photos';
     if (location.hash !== hash) location.hash = hash; else render();
   });
 }

@@ -1,8 +1,8 @@
 {
   "name": "Westley’s Book",
   "short_name": "Westley",
-  "description": "Feeds, sleep, diapers and memories for Westley.",
-  "start_url": "./#/feed",
+  "description": "Photos and memories for Westley.",
+  "start_url": "./#/photos",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
