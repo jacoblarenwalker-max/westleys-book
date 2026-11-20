@@ -15,8 +15,14 @@ adds there is prefixed `wb_` / `wb-` and nothing from household-meals was change
   (“3 weeks old”, “1 month old”), who saved it, a heart from Jake and/or Sophie, and short comments.
   The latest photo opens the book; when a memory falls on this date last week, last month, or last year, an
   “On this day” card looks back. Each month with a few photos has a **Recap** slideshow. Add up to 10 photos
-  at once (resized on the phone to max 2048 px JPEG at quality ~0.8, no video) with progress; tapping a photo
-  opens a swipeable full-screen viewer with pinch or double-tap to zoom.
+  at once with progress (no video). JPEGs are uploaded as the original file (up to 20 MB) with only the
+  metadata stripped losslessly (GPS/camera info removed, orientation and color profile kept); HEIC/PNG/WebP
+  are converted once to JPEG at quality 0.95, full resolution up to ~16 MP.
+- **Photo viewer** (`viewer.js` + `viewer.css`, shared with the grandparents' page): every photo in the
+  timeline in order. Light swipe left/right (or a quick flick) changes photo, the image follows the finger;
+  slide down or up to close; pinch or double-tap to zoom, and dragging pans while zoomed. Arrow keys / Escape on
+  desktop. **Save** fetches the exact stored file (no re-encoding): on iPhone it opens the share sheet
+  (“Save Image” into Photos at full quality), on desktop it downloads `westley-YYYY-MM-DD-N.jpg`.
 - **Firsts**: monthly portrait slots (“Westley at 1 month” through 12 months) plus a first-year checklist
   (first smile, laugh, rolling over, and so on — no medical content). Each first can be dated and linked to a memory.
 - **Letters**: a private time capsule. Both parents can write letters to Westley; they never appear on the
@@ -48,7 +54,7 @@ which is the household-meals look (baby blue band, white cards, beige accents).
 - Same accounts as the Meals app (email + password). Only users listed in `public.wb_parents` (Jacob and Sophie,
   seeded by email) can read or write anything; anyone else who signs in sees “This book is private”.
 - Every `wb_` table has RLS `using/with check private.wb_is_parent()`; anon has no grants. Photos live in the
-  **private** bucket `wb-photos` (JPEG only, 5 MB cap) and are shown with 1-hour signed URLs.
+  **private** bucket `wb-photos` (JPEG only, 20 MB cap) and are shown with 1-hour signed URLs.
 - It shares the `jacoblarenwalker-max.github.io` origin and the Supabase project with the Meals app, so in a
   regular browser tab you're already signed in if Meals is (and signing out of one signs out of the other there).
   Home Screen apps on iPhone keep their own sign-in.

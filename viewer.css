@@ -1,0 +1,40 @@
+/* Westley's Book photo viewer (shared by index.html and family.html) */
+html.wbv-open, html.wbv-open body { overflow: hidden; }
+.wbv { position: fixed; inset: 0; z-index: 60; color: #fff; opacity: 0; transition: opacity 160ms; -webkit-user-select: none; user-select: none;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+.wbv.in { opacity: 1; }
+.wbv-bg { position: absolute; inset: 0; background: #000; }
+.wbv-stage { position: absolute; inset: 0; overflow: hidden; touch-action: none; }
+.wbv-slide { position: absolute; inset: 0; display: grid; place-items: center; will-change: transform; }
+.wbv-img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; transform-origin: center center; will-change: transform; pointer-events: none; -webkit-touch-callout: none; }
+.wbv-spin { position: absolute; width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(255,255,255,.25); border-top-color: #fff; animation: wbv-spin 0.9s linear infinite; }
+.wbv-slide.loaded .wbv-spin, .wbv-slide.failed .wbv-spin { display: none; }
+.wbv-slide.failed::after { content: 'Photo unavailable right now'; color: #ccd; font-size: 15px; }
+@keyframes wbv-spin { to { transform: rotate(360deg); } }
+.wbv-bar { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: calc(env(safe-area-inset-top) + 10px) 12px 24px 18px; background: linear-gradient(rgba(0,0,0,.55), transparent); transition: opacity 180ms; }
+.wbv-count { font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums; text-shadow: 0 1px 3px rgba(0,0,0,.5); }
+.wbv-actions { display: flex; gap: 10px; }
+.wbv-btn { appearance: none; border: 1px solid rgba(255,255,255,.28); background: rgba(20,20,24,.55); color: #fff; font: inherit; font-weight: 700;
+  min-width: 48px; height: 48px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 16px;
+  cursor: pointer; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); touch-action: manipulation; }
+.wbv-btn:active { transform: scale(.95); }
+.wbv-x { width: 48px; padding: 0; font-size: 20px; }
+.wbv-save .wbv-ico { font-size: 19px; line-height: 1; }
+.wbv-save[data-state="done"] { background: rgba(47,115,87,.85); border-color: rgba(255,255,255,.4); }
+.wbv-save[data-state="error"] { background: rgba(155,70,54,.85); }
+.wbv-save[data-state="ready"] { background: rgba(61,134,188,.9); }
+.wbv-save:disabled { opacity: .85; }
+.wbv-cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 40px 20px calc(18px + env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, rgba(0,0,0,.72)); pointer-events: none; transition: opacity 180ms; display: grid; gap: 4px; }
+.wbv-cap.empty { display: none; }
+.wbv-meta { font-weight: 750; font-size: 15px; }
+.wbv-text { margin: 0; font-size: 16px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 30vh; overflow: hidden; }
+.wbv-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 46px; height: 46px; border-radius: 999px; border: 0;
+  background: rgba(255,255,255,.16); color: #fff; font-size: 26px; line-height: 1; display: none; cursor: pointer; }
+.wbv-nav:disabled { opacity: 0; pointer-events: none; }
+.wbv-prev { left: 12px; } .wbv-next { right: 12px; }
+@media (hover: hover) and (pointer: fine) { .wbv-nav { display: grid; place-items: center; } }
+.wbv.chrome-off .wbv-bar, .wbv.chrome-off .wbv-cap, .wbv.chrome-off .wbv-nav, .wbv.zoomed .wbv-cap { opacity: 0; pointer-events: none; }
+.wbv.chrome-off .wbv-bar { pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .wbv-slide, .wbv-img { transition: none !important; } }

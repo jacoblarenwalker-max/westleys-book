@@ -1,5 +1,6 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm';
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, VAPID_PUBLIC_KEY, PUSH_FUNCTION, PHOTO_BUCKET } from './config.js';
+import { openViewer as openPhotoViewer, closeViewer as closePhotoViewer } from './viewer.js?v=wb10';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
@@ -444,16 +445,67 @@ async function decodeImage(file) {
   const url = URL.createObjectURL(file);
   try { const img = new Image(); img.src = url; await img.decode(); return img; } finally { setTimeout(() => URL.revokeObjectURL(url), 1000); }
 }
-async function downscaleToJpeg(file, max = 2048, quality = 0.8) {
+// Re-encode only when a photo isn't a JPEG (HEIC, PNG, WebP…) or is too big: full resolution up to the
+// iPhone canvas limit (~16.7 megapixels), quality 0.95.
+async function encodeJpeg(file, quality = 0.95) {
   const src = await decodeImage(file);
   const w0 = src.width || src.naturalWidth; const h0 = src.height || src.naturalHeight;
   if (!w0 || !h0) throw new Error('That photo couldn’t be read. Try another one.');
-  const k = Math.min(1, max / Math.max(w0, h0));
+  const k = Math.min(1, Math.sqrt(16_000_000 / (w0 * h0)), 8192 / Math.max(w0, h0));
   const w = Math.max(1, Math.round(w0 * k)); const hh = Math.max(1, Math.round(h0 * k));
   const c = document.createElement('canvas'); c.width = w; c.height = hh;
   const ctx = c.getContext('2d'); ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, w, hh); ctx.drawImage(src, 0, 0, w, hh);
   src.close?.();
   return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('That photo couldn’t be read. Try another one.'))), 'image/jpeg', quality));
+}
+// Lossless privacy pass for an original JPEG: drop APP1 metadata (Exif/XMP, which can hold the GPS location
+// of the house) and keep only the orientation, so the pixels and color profile are byte-for-byte untouched.
+function stripJpegMetadata(buf) {
+  const b = new Uint8Array(buf);
+  if (b[0] !== 0xFF || b[1] !== 0xD8) return null;
+  const keep = []; let orientation = 1; let i = 2;
+  while (i + 4 <= b.length) {
+    if (b[i] !== 0xFF) return null;
+    const m = b[i + 1];
+    if (m === 0xFF) { i += 1; continue; }
+    if (m === 0xDA) { keep.push(b.subarray(i)); break; }
+    if (m === 0xD9) return null;
+    if ((m >= 0xD0 && m <= 0xD7) || m === 0x01) { keep.push(b.subarray(i, i + 2)); i += 2; continue; }
+    const len = (b[i + 2] << 8) | b[i + 3];
+    if (len < 2 || i + 2 + len > b.length) return null;
+    const seg = b.subarray(i, i + 2 + len);
+    if (m === 0xE1) {
+      if (len > 16 && String.fromCharCode(...seg.subarray(4, 8)) === 'Exif') {
+        try {
+          const tiff = 10; const le = seg[tiff] === 0x49;
+          const u16 = (o) => (le ? seg[tiff + o] | (seg[tiff + o + 1] << 8) : (seg[tiff + o] << 8) | seg[tiff + o + 1]);
+          const u32 = (o) => (le ? (seg[tiff + o] | (seg[tiff + o + 1] << 8) | (seg[tiff + o + 2] << 16)) + seg[tiff + o + 3] * 2 ** 24 : seg[tiff + o] * 2 ** 24 + ((seg[tiff + o + 1] << 16) | (seg[tiff + o + 2] << 8) | seg[tiff + o + 3]));
+          const ifd = u32(4); const n = u16(ifd);
+          for (let k = 0; k < n; k++) { const e = ifd + 2 + k * 12; if (u16(e) === 0x0112) { const v = u16(e + 8); if (v >= 1 && v <= 8) orientation = v; } }
+        } catch { /* keep orientation 1 */ }
+      }
+    } else keep.push(seg);
+    i += 2 + len;
+  }
+  if (!keep.length || keep[keep.length - 1][1] !== 0xDA) return null;
+  const parts = [new Uint8Array([0xFF, 0xD8])];
+  if (orientation !== 1) {
+    // APP1 "Exif\0\0" + big-endian TIFF with a single Orientation entry
+    parts.push(new Uint8Array([0xFF, 0xE1, 0x00, 0x22, 0x45, 0x78, 0x69, 0x66, 0x00, 0x00, 0x4D, 0x4D, 0x00, 0x2A, 0x00, 0x00, 0x00, 0x08,
+      0x00, 0x01, 0x01, 0x12, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, orientation, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]));
+  }
+  return new Blob([...parts, ...keep], { type: 'image/jpeg' });
+}
+const MAX_UPLOAD = 20 * 1024 * 1024;
+async function prepareUpload(file) {
+  const isJpeg = file.type === 'image/jpeg' || (!file.type && /\.jpe?g$/i.test(file.name || ''));
+  if (isJpeg && file.size <= MAX_UPLOAD) {
+    try { const out = stripJpegMetadata(await file.arrayBuffer()); if (out && out.size <= MAX_UPLOAD) return out; } catch { /* fall through */ }
+  }
+  let out = await encodeJpeg(file, 0.95);
+  if (out.size > MAX_UPLOAD) out = await encodeJpeg(file, 0.88);
+  if (out.size > MAX_UPLOAD) throw new Error('That photo is too big to save. Try another one.');
+  return out;
 }
 const signedCache = new Map(); // path -> { url, until }
 async function photoUrl(path) {
@@ -488,70 +540,28 @@ function pickPhotos(onFiles, max = MAX_PHOTOS) {
   document.body.append(input); input.click();
 }
 
-function attachZoom(slide, img) {
-  let scale = 1, tx = 0, ty = 0, startDist = 0, startScale = 1, lastTap = 0;
-  let panning = false, panX = 0, panY = 0, startTx = 0, startTy = 0;
-  const strip = () => slide.parentElement;
-  const apply = () => {
-    img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
-    slide.dataset.zoomed = scale > 1 ? '1' : '';
-    const el = strip();
-    if (el) el.style.overflowX = scale > 1 ? 'hidden' : '';
-  };
-  slide.addEventListener('touchstart', (e) => {
-    if (e.touches.length === 2) {
-      startDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-      startScale = scale;
-    } else if (e.touches.length === 1) {
-      const t = Date.now();
-      if (t - lastTap < 280) {
-        if (scale > 1) { scale = 1; tx = 0; ty = 0; } else scale = 2.4;
-        apply();
-      }
-      lastTap = t;
-      if (scale > 1) { panning = true; panX = e.touches[0].clientX; panY = e.touches[0].clientY; startTx = tx; startTy = ty; }
-    }
-  }, { passive: true });
-  slide.addEventListener('touchmove', (e) => {
-    if (e.touches.length === 2 && startDist) {
-      const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-      scale = Math.min(4, Math.max(1, startScale * (d / Math.max(1, startDist))));
-      if (scale === 1) { tx = 0; ty = 0; }
-      apply();
-    } else if (panning && e.touches.length === 1 && scale > 1) {
-      tx = startTx + (e.touches[0].clientX - panX);
-      ty = startTy + (e.touches[0].clientY - panY);
-      apply();
-    }
-  }, { passive: true });
-  slide.addEventListener('touchend', () => { panning = false; if (scale <= 1) { scale = 1; tx = 0; ty = 0; apply(); } }, { passive: true });
-}
-
-let viewerEl = null;
+let viewerEl = null; // the recap slideshow
 function closeViewer() {
   if (!viewerEl) return;
   viewerEl.dispatchEvent(new Event('wb-close'));
   viewerEl.remove(); viewerEl = null;
   if (!sheetEl) document.body.classList.remove('sheet-open');
 }
-function openViewer(paths, start = 0) {
-  closeViewer();
-  const count = h('span', { class: 'viewer-count' }, paths.length > 1 ? `${start + 1} / ${paths.length}` : '');
-  const slides = paths.map((p) => {
-    const img = photoImg(p, 'viewer-img');
-    const slide = h('div', { class: 'viewer-slide' }, img);
-    attachZoom(slide, img);
-    return slide;
-  });
-  const strip = h('div', { class: 'viewer-strip' }, slides);
-  strip.addEventListener('scroll', () => { const k = Math.round(strip.scrollLeft / Math.max(1, strip.clientWidth)); if (paths.length > 1) count.textContent = `${k + 1} / ${paths.length}`; }, { passive: true });
-  const step = (dir) => { strip.scrollBy({ left: dir * strip.clientWidth, behavior: 'smooth' }); };
-  viewerEl = h('div', { class: 'viewer', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Photos' },
-    h('div', { class: 'viewer-bar' }, count, h('button', { class: 'icon', 'aria-label': 'Close', onclick: closeViewer }, '✕')), strip);
-  viewerEl.addEventListener('wb-step', (e) => step(e.detail));
-  document.body.append(viewerEl); document.body.classList.add('sheet-open');
-  requestAnimationFrame(() => { strip.scrollLeft = start * strip.clientWidth; });
+// Full-screen photos: every photo in the timeline, in order, so a swipe keeps going into the next memory.
+function openViewer(memory, k = 0) {
+  const items = []; let start = 0;
+  for (const m of S.rows.wb_memories) {
+    const paths = memPaths(m); if (!paths.length) continue;
+    const by = whoName(m.created_by);
+    const meta = [fmtDate(m.happened_on, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }), ageAt(m.happened_on), by ? `by ${by}` : null].filter(Boolean).join(' · ');
+    paths.forEach((path, n) => {
+      if (m.id === memory.id && n === k) start = items.length;
+      items.push({ getUrl: () => photoUrl(path), caption: m.caption || '', meta: paths.length > 1 ? `${meta} · ${n + 1} of ${paths.length}` : meta, filename: `westley-${m.happened_on}-${n + 1}.jpg` });
+    });
+  }
+  openPhotoViewer(items, start);
 }
+window.addEventListener('hashchange', () => closePhotoViewer());
 function openSlideshow(slides, title) {
   if (!slides.length) return;
   closeViewer();
@@ -606,9 +616,9 @@ window.addEventListener('hashchange', closeViewer);
 function memoryPhotos(m) {
   const paths = memPaths(m);
   if (!paths.length) return null;
-  if (paths.length === 1) return h('div', { class: 'mem-one', onclick: (e) => { e.stopPropagation(); openViewer(paths, 0); } }, photoImg(paths[0]));
+  if (paths.length === 1) return h('div', { class: 'mem-one', onclick: (e) => { e.stopPropagation(); openViewer(m, 0); } }, photoImg(paths[0]));
   const shown = paths.slice(0, 4);
-  return h('div', { class: `mem-grid n${Math.min(paths.length, 4)}` }, shown.map((p, k) => h('button', { type: 'button', class: 'mem-cell', 'aria-label': `Photo ${k + 1} of ${paths.length}`, onclick: (e) => { e.stopPropagation(); openViewer(paths, k); } },
+  return h('div', { class: `mem-grid n${Math.min(paths.length, 4)}` }, shown.map((p, k) => h('button', { type: 'button', class: 'mem-cell', 'aria-label': `Photo ${k + 1} of ${paths.length}`, onclick: (e) => { e.stopPropagation(); openViewer(m, k); } },
     photoImg(p, 'mem-thumb'), k === 3 && paths.length > 4 ? h('span', { class: 'mem-more' }, `+${paths.length - 4}`) : null)));
 }
 
@@ -791,7 +801,7 @@ function memorySheet(m, files) {
       const step = (text) => { status.className = 'small muted'; status.textContent = text; bar.classList.remove('hidden'); bar.firstChild.style.width = `${Math.round((done / Math.max(1, todo.length)) * 100)}%`; };
       for (const it of todo) {
         step(todo.length > 1 ? `Uploading photo ${done + 1} of ${todo.length}…` : 'Uploading photo…');
-        const blob = await downscaleToJpeg(it.file);
+        const blob = await prepareUpload(it.file);
         const path = `${uuid()}.jpg`;
         const up = await sb.storage.from(PHOTO_BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false, cacheControl: '3600' });
         if (up.error) throw up.error;
