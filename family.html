@@ -58,7 +58,7 @@ import { openViewer } from './viewer.js?v=wb10';
   let last = '';
   // every photo on the page, in order, so swiping keeps going into the next memory
   const all = [];
-  for (const mem of d.memories) mem.photos.forEach((u, n) => { mem._start ??= all.length; all.push({ getUrl: () => u, caption: mem.text || '', meta: [fmt(mem.date), mem.author ? '— ' + mem.author : '', mem.photos.length > 1 ? `${n + 1} of ${mem.photos.length}` : ''].filter(Boolean).join(' · '), filename: `westley-${mem.date}-${n + 1}.jpg` }); });
+  for (const mem of d.memories) mem.photos.forEach((u, n) => { mem._start ??= all.length; all.push({ getUrl: () => u, caption: mem.text || '', meta: [fmt(mem.date), mem.author ? 'from ' + mem.author : '', mem.photos.length > 1 ? `${n + 1} of ${mem.photos.length}` : ''].filter(Boolean).join(' · '), filename: `westley-${mem.date}-${n + 1}.jpg` }); });
   for (const mem of d.memories) {
     if (mem.date !== last) { m.append(el('div', 'day', fmt(mem.date))); last = mem.date; }
     const c = el('article', 'card');
