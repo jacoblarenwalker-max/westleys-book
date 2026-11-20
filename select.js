@@ -50,7 +50,8 @@ function saveBlob(blob, name) {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
-export function createSelect({ items, onModeChange = () => {}, label = 'photos' } = {}) {
+// edges(): { top } = the bottom of any sticky header, so auto-scroll starts below it (the bar covers the bottom)
+export function createSelect({ items, onModeChange = () => {}, label = 'photos', edges: edgesOpt } = {}) {
   let on = false, gen = 0, busy = false, flashTimer = 0;
   const picked = new Set();
   const files = new Map();   // key -> File, ready to share instantly (inside the tap)
@@ -187,13 +188,13 @@ export function createSelect({ items, onModeChange = () => {}, label = 'photos' 
     if (want) { picked.add(key); prefetch(key); } else picked.delete(key);
     update();
   }
-  function enter(key) {
-    if (on) { if (key != null) toggle(key, true); return; }
+  function enter(key, { pick: pickIt = true } = {}) {
+    if (on) { if (key != null && pickIt) toggle(key, true); return; }
     withAnchor(key, () => {
       on = true; nameCache = null;
       document.documentElement.classList.add('wbs-on');
       document.body.append(bar);
-      if (key != null) { picked.add(String(key)); prefetch(String(key)); }
+      if (key != null && pickIt) { picked.add(String(key)); prefetch(String(key)); }
       setState('idle');
       onModeChange(true);
     });
@@ -202,6 +203,7 @@ export function createSelect({ items, onModeChange = () => {}, label = 'photos' 
   function exit({ quiet = false } = {}) {
     if (!on) return;
     const go = () => {
+      if (drag) endDrag();
       on = false; gen++; busy = false;
       picked.clear(); files.clear(); pending.clear(); queue = [];
       document.documentElement.classList.remove('wbs-on');
@@ -264,25 +266,139 @@ export function createSelect({ items, onModeChange = () => {}, label = 'photos' 
   zipBtn.addEventListener('click', () => { if (!busy && picked.size) download(selected()); });
   document.addEventListener('keydown', (e) => { if (on && e.key === 'Escape' && !document.querySelector('.wbv')) { e.preventDefault(); exit(); } });
 
+  /* ---------- press-and-drag range selection (like Photos): hold, then slide across photos ---------- */
+  // Hold a photo (briefly while selecting, a long-press otherwise) and slide: every photo between the one you
+  // started on and the one under your finger flips to the same state; sliding back restores the rest.
+  // Near the top or bottom edge the page scrolls by itself and keeps grabbing photos.
+  const HOLD_MS = 230, EDGE = 90, MAX_SPEED = 22;
+  let drag = null;  // { anchor, add, base: Set, last, x, y, raf }
+  let press = null; // a touch or mouse press that may become a drag
+  let suppressUntil = 0;
+  const tiles = () => [...document.querySelectorAll('[data-wbs-key]')];
+  const tileByKey = (k) => tiles().find((t) => t.dataset.wbsKey === k);
+  function bounds() {
+    const top = Math.max(0, Math.min(edgesOpt?.()?.top ?? 0, innerHeight * 0.35));
+    const bottom = bar.isConnected ? Math.min(innerHeight, bar.getBoundingClientRect().top) : innerHeight;
+    return { top, bottom };
+  }
+  function tileAt(x, y) {
+    const { top, bottom } = bounds();
+    const yy = Math.min(Math.max(y, top + 2), bottom - 2); // over the header or the bar: use the photo just inside
+    return document.elementFromPoint(x, yy)?.closest?.('[data-wbs-key]') || null;
+  }
+  function applyRange(cur) {
+    const keys = tiles().map((t) => t.dataset.wbsKey);
+    const a = keys.indexOf(drag.anchor); if (a < 0) return;
+    let b = keys.indexOf(cur); if (b < 0) b = a;
+    const lo = Math.min(a, b), hi = Math.max(a, b);
+    picked.clear(); for (const k of drag.base) picked.add(k);
+    for (let i = lo; i <= hi; i++) { if (drag.add) picked.add(keys[i]); else picked.delete(keys[i]); }
+    drag.last = cur; update();
+  }
+  function startDrag(key, x, y) {
+    let add;
+    if (!on) { enter(key, { pick: false }); add = true; } else add = !picked.has(key);
+    drag = { anchor: key, add, base: new Set(picked), last: key, x, y, raf: 0 };
+    document.documentElement.classList.add('wbs-dragging');
+    applyRange(key);
+    navigator.vibrate?.(10);
+    const t = tileByKey(key);
+    if (t) { t.classList.remove('wbs-pulse'); void t.offsetWidth; t.classList.add('wbs-pulse'); setTimeout(() => t.classList.remove('wbs-pulse'), 320); }
+  }
+  function dragMove(x, y) {
+    drag.x = x; drag.y = y;
+    const t = tileAt(x, y);
+    if (t && t.dataset.wbsKey !== drag.last) applyRange(t.dataset.wbsKey);
+    if (!drag.raf) drag.raf = requestAnimationFrame(autoScroll);
+  }
+  function autoScroll() {
+    if (!drag) return;
+    drag.raf = 0;
+    const { top, bottom } = bounds(), y = drag.y;
+    let v = 0;
+    if (y < top + EDGE) v = -MAX_SPEED * Math.min(1, Math.max(0.12, (top + EDGE - y) / EDGE));
+    else if (y > bottom - EDGE) v = MAX_SPEED * Math.min(1, Math.max(0.12, (y - (bottom - EDGE)) / EDGE));
+    if (!v) return;
+    const before = scrollY;
+    window.scrollBy(0, v);
+    if (scrollY !== before) { const t = tileAt(drag.x, y); if (t && t.dataset.wbsKey !== drag.last) applyRange(t.dataset.wbsKey); }
+    drag.raf = requestAnimationFrame(autoScroll);
+  }
+  function endDrag() {
+    if (!drag) return;
+    cancelAnimationFrame(drag.raf);
+    for (const k of picked) if (!drag.base.has(k)) prefetch(k);
+    drag = null;
+    document.documentElement.classList.remove('wbs-dragging');
+    suppressUntil = performance.now() + 450; // the click the browser sends after lifting must not toggle the last photo back
+  }
+  function cancelPress() { if (press?.timer) clearTimeout(press.timer); press = null; }
+  // the click after a drag lands on whatever is under the finger; swallow it once
+  document.addEventListener('click', (e) => { if (performance.now() < suppressUntil) { e.preventDefault(); e.stopPropagation(); suppressUntil = 0; } }, true);
+  // a new press means the next click is a real tap
+  document.addEventListener('pointerdown', () => { suppressUntil = 0; }, true);
+
+  /* touch: listen on the touched element itself, so the gesture survives the page redrawing on entering select mode */
+  function onTouchStart(e, key) {
+    if (e.touches.length !== 1 || drag) { cancelPress(); if (drag && e.touches.length > 1) endDrag(); return; }
+    const p = e.touches[0], target = e.target;
+    cancelPress();
+    press = { key, id: p.identifier, x0: p.clientX, y0: p.clientY, x: p.clientX, y: p.clientY, target };
+    press.timer = setTimeout(() => { if (!press) return; press.timer = 0; startDrag(key, press.x, press.y); }, on ? HOLD_MS : LONG_MS);
+    const opts = { passive: false };
+    const move = (ev) => {
+      if (ev.__wbs) return; ev.__wbs = true;
+      const q = [...ev.changedTouches].find((t) => t.identifier === press?.id); if (!q) return;
+      press.x = q.clientX; press.y = q.clientY;
+      if (drag) { if (ev.cancelable) ev.preventDefault(); dragMove(q.clientX, q.clientY); return; }
+      if (!press.timer) return;
+      const dx = q.clientX - press.x0, dy = q.clientY - press.y0;
+      if (Math.hypot(dx, dy) <= MOVE_PX) return;
+      if (on && Math.abs(dx) > Math.abs(dy) * 1.2 && ev.cancelable) { // sideways right away: start grabbing
+        ev.preventDefault(); clearTimeout(press.timer); press.timer = 0;
+        startDrag(key, press.x0, press.y0); dragMove(q.clientX, q.clientY);
+      } else cancelPress(); // up/down: a normal scroll
+    };
+    const end = (ev) => {
+      if (ev.__wbs) return; ev.__wbs = true;
+      if (drag) { if (ev.cancelable && ev.type === 'touchend') ev.preventDefault(); endDrag(); }
+      cancelPress(); detach();
+    };
+    const detach = () => { for (const n of [target, document]) { n.removeEventListener('touchmove', move, opts); n.removeEventListener('touchend', end); n.removeEventListener('touchcancel', end); } };
+    for (const n of [target, document]) { n.addEventListener('touchmove', move, opts); n.addEventListener('touchend', end); n.addEventListener('touchcancel', end); }
+  }
+  /* mouse: while selecting, click-and-drag past 8px grabs a range; a long press starts selecting */
+  function onPointerDown(e, key) {
+    if (e.pointerType === 'touch' || e.button !== 0) return;
+    cancelPress();
+    press = { key, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY };
+    if (!on) press.timer = setTimeout(() => { if (!press) return; press.timer = 0; startDrag(key, press.x, press.y); }, LONG_MS);
+    const move = (ev) => {
+      if (!press && !drag) return;
+      if (press) { press.x = ev.clientX; press.y = ev.clientY; }
+      if (drag) { ev.preventDefault(); dragMove(ev.clientX, ev.clientY); return; }
+      if (Math.hypot(ev.clientX - press.x0, ev.clientY - press.y0) <= 8) return;
+      if (on) { const k = press.key; startDrag(k, press.x0, press.y0); dragMove(ev.clientX, ev.clientY); }
+      else cancelPress();
+    };
+    const up = () => { endDrag(); cancelPress(); removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up); };
+    addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up);
+  }
+
   /* ---------- thumbnails ---------- */
   function bindThumb(t, key, open) {
     key = String(key);
     t.dataset.wbsKey = key; t.classList.add('wbs-thumb');
     const badge = el('span', 'wbs-check'); badge.setAttribute('aria-hidden', 'true'); badge.innerHTML = CHECK;
     t.append(badge);
-    let timer = 0, x0 = 0, y0 = 0, fired = false;
-    const stop = () => { clearTimeout(timer); timer = 0; };
-    t.addEventListener('pointerdown', (e) => {
-      if (e.button > 0) return;
-      fired = false; x0 = e.clientX; y0 = e.clientY; stop();
-      timer = setTimeout(() => { timer = 0; fired = true; navigator.vibrate?.(10); if (on) toggle(key); else enter(key); }, LONG_MS);
-    });
-    t.addEventListener('pointermove', (e) => { if (timer && Math.hypot(e.clientX - x0, e.clientY - y0) > MOVE_PX) stop(); });
-    for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) t.addEventListener(ev, stop);
+    for (const img of t.querySelectorAll('img')) img.draggable = false;
+    t.addEventListener('touchstart', (e) => onTouchStart(e, key), { passive: true });
+    t.addEventListener('pointerdown', (e) => onPointerDown(e, key));
+    t.addEventListener('dragstart', (e) => e.preventDefault());
     t.addEventListener('contextmenu', (e) => { if (isTouch() || on) e.preventDefault(); });
     t.addEventListener('click', (e) => {
       e.preventDefault(); e.stopPropagation();
-      if (fired) { fired = false; return; }
+      if (drag || performance.now() < suppressUntil) return;
       if (on) toggle(key); else open?.();
     });
     if (picked.has(key)) t.classList.add('wbs-sel');
@@ -303,5 +419,5 @@ export function createSelect({ items, onModeChange = () => {}, label = 'photos' 
     return btn;
   }
 
-  return { bindThumb, groupToggle, enter, exit, toggle, get active() { return on; }, get count() { return picked.size; }, has: (k) => picked.has(String(k)), refresh: update };
+  return { bindThumb, groupToggle, enter, exit, toggle, get active() { return on; }, get dragging() { return !!drag; }, get count() { return picked.size; }, has: (k) => picked.has(String(k)), refresh: update };
 }

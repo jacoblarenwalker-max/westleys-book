@@ -29,6 +29,11 @@ adds there is prefixed `wb_` / `wb-` and nothing from household-meals was change
   if iOS says the tap expired while the photos load, the button becomes “Tap to share N photos”. **Save ZIP** /
   **Download ZIP** builds a stored (uncompressed) ZIP in the browser, so each photo inside is the exact stored
   file; one photo downloads on its own. Escape, Cancel, or leaving Memories ends selecting.
+- **Hold and slide to grab many** (like Photos): while selecting, hold a photo for a moment (or slide sideways
+  right away) and drag; every photo between where you started and your finger gets picked (or unpicked, if you
+  started on a picked one), and sliding back puts the rest as they were. From normal view, a long-press starts
+  selecting and you can keep dragging without lifting. Near the top or bottom edge the page scrolls by itself and
+  keeps grabbing. A quick swipe without holding still just scrolls. On desktop, click-and-drag does the same.
 - **Firsts**: monthly portrait slots (“Westley at 1 month” through 12 months) plus a first-year checklist
   (first smile, laugh, rolling over, and so on — no medical content). Each first can be dated and linked to a memory.
 - **Letters**: a private time capsule. Both parents can write letters to Westley; they never appear on the

@@ -58,3 +58,11 @@ html.wbs-on button.wbs-group[aria-pressed="true"] { background: var(--accent, va
 }
 .wbs-bar button:disabled { opacity: .5; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) { .wbs-bar { animation: none; } .wbs-thumb img, .wbs-check { transition: none; } }
+/* press-and-drag range selection */
+html.wbs-dragging, html.wbs-dragging body { -webkit-user-select: none; user-select: none; cursor: grabbing; }
+html.wbs-on .wbs-thumb, html.wbs-on .wbs-thumb * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.wbs-thumb.wbs-pulse .wbs-check { animation: wbs-pulse 300ms cubic-bezier(.2,.7,.3,1); }
+.wbs-thumb.wbs-pulse img { animation: wbs-pop 300ms cubic-bezier(.2,.7,.3,1); }
+@keyframes wbs-pulse { 0% { transform: scale(1); } 45% { transform: scale(1.35); } 100% { transform: scale(1.08); } }
+@keyframes wbs-pop { 0% { filter: brightness(1); } 40% { filter: brightness(.82); } 100% { filter: brightness(1); } }
+@media (prefers-reduced-motion: reduce) { .wbs-thumb.wbs-pulse .wbs-check, .wbs-thumb.wbs-pulse img { animation: none; } }

@@ -1,7 +1,7 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm';
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, VAPID_PUBLIC_KEY, PUSH_FUNCTION, PHOTO_BUCKET } from './config.js';
-import { openViewer as openPhotoViewer, closeViewer as closePhotoViewer } from './viewer.js?v=wb11';
-import { createSelect } from './select.js?v=wb11';
+import { openViewer as openPhotoViewer, closeViewer as closePhotoViewer } from './viewer.js?v=wb12';
+import { createSelect } from './select.js?v=wb12';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
@@ -621,7 +621,7 @@ function timelinePhotos() {
   for (const m of S.rows.wb_memories) memPaths(m).forEach((path, n) => out.push({ key: photoKey(m, n), getUrl: () => photoUrl(path), filename: `westley-${m.happened_on}-${n + 1}.jpg` }));
   return out;
 }
-const pick = createSelect({ items: timelinePhotos, label: 'photos', onModeChange: () => render() });
+const pick = createSelect({ items: timelinePhotos, label: 'photos', onModeChange: () => render(), edges: () => ({ top: document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0 }) });
 function memoryPhotos(m, { selectable = false } = {}) {
   const paths = memPaths(m);
   if (!paths.length) return null;
