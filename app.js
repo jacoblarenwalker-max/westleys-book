@@ -1,6 +1,7 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm';
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, VAPID_PUBLIC_KEY, PUSH_FUNCTION, PHOTO_BUCKET } from './config.js';
-import { openViewer as openPhotoViewer, closeViewer as closePhotoViewer } from './viewer.js?v=wb10';
+import { openViewer as openPhotoViewer, closeViewer as closePhotoViewer } from './viewer.js?v=wb11';
+import { createSelect } from './select.js?v=wb11';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
@@ -328,7 +329,7 @@ function route() {
   if (['feed', 'diaper', 'diapers', 'meds'].includes(v)) return 'photos';
   return [...TABS.map((t) => t[0]), 'settings'].includes(v) ? v : 'photos';
 }
-window.addEventListener('hashchange', () => { closeSheet(); render(); window.scrollTo(0, 0); });
+window.addEventListener('hashchange', () => { closeSheet(); pick.exit({ quiet: true }); render(); window.scrollTo(0, 0); });
 
 /* theme: night by default (dim, for 3 AM), day = the household-meals look */
 const theme = () => localStorage.getItem('wb-theme') || 'night';
@@ -339,12 +340,12 @@ function applyTheme() {
 }
 applyTheme();
 
-function topbar(title, sub) {
+function topbar(title, sub, action) {
   const t = theme();
   return h('header', { class: 'topbar' },
     h('div', { class: 'row spread' },
       h('div', { class: 'grow' }, h('h1', null, title), sub ? h('p', { class: 'sub' }, sub) : null),
-      h('div', { class: 'row tight' },
+      h('div', { class: 'row tight' }, action || null,
         h('button', { class: 'icon', 'aria-label': t === 'night' ? 'Day colors' : 'Night colors', onclick: () => { localStorage.setItem('wb-theme', t === 'night' ? 'day' : 'night'); applyTheme(); render(); } }, icon(t === 'night' ? 'sun' : 'moon')),
         h('a', { class: 'icon', href: '#/settings', 'aria-label': 'Settings' }, icon('gear')))));
 }
@@ -352,10 +353,10 @@ function tabbar(active) {
   return h('nav', { class: 'tabbar', 'aria-label': 'Main' }, h('div', { class: 'inner' },
     TABS.map(([k, label]) => h('a', { href: `#/${k}`, class: active === k ? 'active' : '', 'aria-current': active === k ? 'page' : null }, icon(k), h('span', null, label)))));
 }
-function mount(view, { title, sub, main, dock }) {
+function mount(view, { title, sub, main, dock, action }) {
   appEl.className = 'app' + (dock ? ' has-dock' : '');
   const dockEl = dock ? h('div', { class: 'dock' }, h('div', { class: 'inner' }, dock)) : null;
-  appEl.replaceChildren(...[topbar(title, sub), h('main', { class: 'content' }, main), dockEl, tabbar(view)].filter(Boolean)); // (a bare null would render as the text "null")
+  appEl.replaceChildren(...[topbar(title, sub, action), h('main', { class: 'content' }, main), dockEl, tabbar(view)].filter(Boolean)); // (a bare null would render as the text "null")
   // content and toasts clear the dock, whatever its height (one row idle, two rows mid-feed)
   document.documentElement.style.setProperty('--dock-h', `${dockEl ? dockEl.offsetHeight : 0}px`);
   tick();
@@ -613,9 +614,25 @@ document.addEventListener('keydown', (e) => {
 });
 window.addEventListener('hashchange', closeViewer);
 
-function memoryPhotos(m) {
+// Select mode (select.js): long-press a photo or tap Select, then pick photos to share or download as originals.
+const photoKey = (m, n) => `${m.id}|${n}`;
+function timelinePhotos() {
+  const out = [];
+  for (const m of S.rows.wb_memories) memPaths(m).forEach((path, n) => out.push({ key: photoKey(m, n), getUrl: () => photoUrl(path), filename: `westley-${m.happened_on}-${n + 1}.jpg` }));
+  return out;
+}
+const pick = createSelect({ items: timelinePhotos, label: 'photos', onModeChange: () => render() });
+function memoryPhotos(m, { selectable = false } = {}) {
   const paths = memPaths(m);
   if (!paths.length) return null;
+  if (selectable) {
+    const bind = (k, node) => pick.bindThumb(node, photoKey(m, k), () => openViewer(m, k));
+    if (paths.length === 1) return bind(0, h('div', { class: 'mem-one' }, photoImg(paths[0])));
+    const every = pick.active && paths.length > 4; // while selecting, show every photo so each can be picked
+    const shown = every ? paths : paths.slice(0, 4);
+    return h('div', { class: `mem-grid ${every ? 'all' : `n${Math.min(paths.length, 4)}`}` }, shown.map((p, k) => bind(k, h('button', { type: 'button', class: 'mem-cell', 'aria-label': `Photo ${k + 1} of ${paths.length}` },
+      photoImg(p, 'mem-thumb'), !every && k === 3 && paths.length > 4 ? h('span', { class: 'mem-more' }, `+${paths.length - 4}`) : null))));
+  }
   if (paths.length === 1) return h('div', { class: 'mem-one', onclick: (e) => { e.stopPropagation(); openViewer(m, 0); } }, photoImg(paths[0]));
   const shown = paths.slice(0, 4);
   return h('div', { class: `mem-grid n${Math.min(paths.length, 4)}` }, shown.map((p, k) => h('button', { type: 'button', class: 'mem-cell', 'aria-label': `Photo ${k + 1} of ${paths.length}`, onclick: (e) => { e.stopPropagation(); openViewer(m, k); } },
@@ -664,7 +681,7 @@ function lookbackCards() {
   return lookingBack().slice(0, 2).map((c) => {
     const m = c.mems[0];
     const path = memPaths(m)[0];
-    return h('article', { class: 'card lookback', onclick: () => memoryDetail(m) },
+    return h('article', { class: 'card lookback', onclick: () => { if (!pick.active) memoryDetail(m); } },
       h('div', { class: 'eyebrow' }, c.title),
       h('div', { class: 'lookback-row' },
         path ? h('div', { class: 'lookback-thumb' }, photoImg(path, 'lookback-img')) : null,
@@ -689,7 +706,7 @@ function renderPhotos() {
   const photoCount = monthPhotoCount(mems);
   const latest = mems.find((m) => memPaths(m).length);
   const hero = latest
-    ? h('section', { class: 'mem-hero', onclick: () => memoryDetail(latest) },
+    ? h('section', { class: 'mem-hero', onclick: () => { if (!pick.active) memoryDetail(latest); } },
       photoImg(memPaths(latest)[0], 'mem-hero-photo'),
       h('div', { class: 'mem-hero-fade' },
         h('div', { class: 'mem-hero-name' }, babyName()),
@@ -703,12 +720,13 @@ function renderPhotos() {
     return h('section', { class: 'timeline' },
       h('div', { class: 'month-head' },
         h('h2', { class: 'month' }, month),
-        n >= 2 ? h('button', { type: 'button', class: 'ghost recap-btn', onclick: () => playMonthRecap(xs, month) }, '▶ Recap') : null),
+        n >= 2 ? h('button', { type: 'button', class: 'ghost recap-btn', onclick: () => playMonthRecap(xs, month) }, '▶ Recap') : null,
+        n ? pick.groupToggle(() => xs.flatMap((m) => memPaths(m).map((_, k) => photoKey(m, k))), ['Select month', 'Deselect']) : null),
       xs.map((m) => {
         const by = whoName(m.created_by);
         const nC = commentsFor(m.id).length;
-        return h('article', { class: 'memory', onclick: () => memoryDetail(m) },
-          memoryPhotos(m),
+        return h('article', { class: 'memory', onclick: () => { if (!pick.active) memoryDetail(m); } },
+          memoryPhotos(m, { selectable: true }),
           h('div', { class: 'memory-body' },
             h('div', { class: 'memory-date' }, h('span', null, fmtDate(m.happened_on, { weekday: 'short', month: 'short', day: 'numeric' })), ageAt(m.happened_on) ? h('span', { class: 'chip' }, ageAt(m.happened_on)) : null, by ? h('span', { class: 'memory-by' }, `by ${by}`) : null),
             m.caption ? h('p', { class: 'caption' }, m.caption) : null,
@@ -721,7 +739,8 @@ function renderPhotos() {
   const dock = h('div', { class: 'dock-row two' },
     h('button', { class: 'side-btn start suggest', onclick: () => pickPhotos((files) => memorySheet(null, files)) }, h('span', { class: 'letter emoji' }, '📷'), h('span', { class: 'lbl' }, 'Add photos')),
     h('button', { class: 'side-btn', onclick: () => memorySheet(null, null) }, h('span', { class: 'letter emoji' }, '✎'), h('span', { class: 'lbl' }, 'Write a note')));
-  mount('photos', { title: 'Memories', sub: ageText(S.family.birth_date) || `${babyName()}’s Book`, main, dock });
+  const action = photoCount ? h('button', { type: 'button', class: 'pill-btn select-btn', 'aria-pressed': String(pick.active), onclick: () => (pick.active ? pick.exit() : pick.enter()) }, pick.active ? 'Done' : 'Select') : null;
+  mount('photos', { title: 'Memories', sub: ageText(S.family.birth_date) || `${babyName()}’s Book`, main, dock, action });
 }
 function memoryDetail(m) {
   const get = () => S.rows.wb_memories.find((x) => x.id === m.id) || m;

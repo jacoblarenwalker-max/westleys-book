@@ -23,6 +23,12 @@ adds there is prefixed `wb_` / `wb-` and nothing from household-meals was change
   slide down or up to close; pinch or double-tap to zoom, and dragging pans while zoomed. Arrow keys / Escape on
   desktop. **Save** fetches the exact stored file (no re-encoding): on iPhone it opens the share sheet
   (“Save Image” into Photos at full quality), on desktop it downloads `westley-YYYY-MM-DD-N.jpg`.
+- **Select several photos** (`select.js` + `select.css`, also on the grandparents' page): tap **Select** (or
+  press and hold any photo), tap photos to pick them, or use “Select month” / “Select all”. **Share / Save** on
+  iPhone hands every original file to the share sheet at once (“Save N Images” into Photos, AirDrop, Messages);
+  if iOS says the tap expired while the photos load, the button becomes “Tap to share N photos”. **Save ZIP** /
+  **Download ZIP** builds a stored (uncompressed) ZIP in the browser, so each photo inside is the exact stored
+  file; one photo downloads on its own. Escape, Cancel, or leaving Memories ends selecting.
 - **Firsts**: monthly portrait slots (“Westley at 1 month” through 12 months) plus a first-year checklist
   (first smile, laugh, rolling over, and so on — no medical content). Each first can be dated and linked to a memory.
 - **Letters**: a private time capsule. Both parents can write letters to Westley; they never appear on the

@@ -490,3 +490,16 @@ button.pick-mem, .pick-mem.static {
 article.letter-card { background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 16px; cursor: pointer; display: grid; gap: 8px; }
 .letter-preview { color: var(--muted); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .letter-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 1.0625rem; line-height: 1.55; }
+/* multi-select (select.js / select.css): Select button in the header, the bar sits right above the tabs */
+:root { --wbs-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom)); --wbs-safe: 0px; }
+button.pill-btn {
+  min-height: 44px; height: 44px; padding: 0 16px; border-radius: 999px; font-size: .9375rem; font-weight: 750;
+  background: transparent; color: inherit; border: 1.5px solid currentColor; opacity: .95;
+}
+button.pill-btn[aria-pressed="true"] { background: var(--bar-ink); color: var(--bar-bg); border-color: var(--bar-ink); }
+html.wbs-on .dock, html.wbs-on .recap-btn { display: none; }
+html.wbs-on .app, html.wbs-on .app.has-dock { padding-bottom: calc(var(--nav-h) + 150px + env(safe-area-inset-bottom)); }
+html.wbs-on .mem-hero, html.wbs-on .lookback { opacity: .55; }
+html.wbs-on .memory { cursor: default; }
+.mem-grid.all { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.mem-one.wbs-thumb { overflow: hidden; }

@@ -1,0 +1,60 @@
+/* Westley's Book multi-select (select.js): checkmark badges on photos and the bottom action bar.
+   Works on both pages: app tokens (--accent, --surface…) first, family.html tokens (--sky…) as fallback. */
+.wbs-thumb { position: relative; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.wbs-thumb img { -webkit-touch-callout: none; -webkit-user-drag: none; transition: transform 160ms cubic-bezier(.2,.7,.3,1), border-radius 160ms; }
+.wbs-check {
+  position: absolute; top: 8px; left: 8px; z-index: 2; width: 26px; height: 26px; border-radius: 999px;
+  display: none; place-items: center; pointer-events: none;
+  border: 2px solid #FFFFFF; background: rgba(8, 16, 28, .22); color: transparent;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .35); transition: background-color 140ms, transform 140ms;
+}
+.wbs-check svg { width: 16px; height: 16px; }
+html.wbs-on .wbs-check { display: grid; }
+html.wbs-on .wbs-thumb { cursor: pointer; }
+.wbs-thumb.wbs-sel { background: color-mix(in srgb, var(--accent, var(--sky, #4BA3E3)) 28%, transparent) !important; }
+.wbs-thumb.wbs-sel img { transform: scale(.86); border-radius: 10px; }
+.wbs-thumb.wbs-sel .wbs-check { background: var(--accent, var(--sky, #4BA3E3)); color: var(--on-accent, var(--navy, #0F2747)); transform: scale(1.08); }
+html.wbs-on .wbs-thumb .mem-more, html.wbs-on .wbs-thumb .more-n { display: none; }
+
+/* group toggles ("Select month" / "Select") only show while selecting */
+button.wbs-group { display: none; }
+html.wbs-on button.wbs-group {
+  display: inline-flex; align-items: center; min-height: 34px; padding: 4px 12px; border-radius: 999px; font: inherit; font-size: .8125rem; font-weight: 700;
+  background: transparent; color: var(--accent-text, var(--sky-deep, #1B5E96)); border: 1.5px solid currentColor; cursor: pointer; transform: none;
+}
+html.wbs-on button.wbs-group[aria-pressed="true"] { background: var(--accent, var(--sky, #4BA3E3)); color: var(--on-accent, var(--navy, #0F2747)); border-color: transparent; }
+
+/* the bottom bar */
+.wbs-bar {
+  position: fixed; left: 0; right: 0; bottom: var(--wbs-bottom, 0px); z-index: 30;
+  background: var(--surface, #FFFFFF); color: var(--ink, #1C2A3F);
+  border-top: 1px solid var(--line-strong, var(--line, #ECE4D6)); box-shadow: 0 -8px 24px rgba(8, 16, 28, .12);
+  padding: 8px 12px calc(12px + var(--wbs-safe, env(safe-area-inset-bottom)));
+  animation: wbs-up 180ms cubic-bezier(.2,.7,.3,1);
+}
+@keyframes wbs-up { from { transform: translateY(100%); } to { transform: none; } }
+.wbs-inner { max-width: 640px; margin: 0 auto; display: grid; gap: 8px; }
+.wbs-top { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; }
+.wbs-count { font-weight: 800; font-size: 1rem; text-align: center; white-space: nowrap; }
+.wbs-bar button.wbs-btn {
+  font: inherit; font-weight: 750; border-radius: 14px; cursor: pointer; transform: none;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; touch-action: manipulation;
+}
+.wbs-bar button.wbs-text { background: transparent; border: 0; color: var(--accent-text, var(--sky-deep, #1B5E96)); min-height: 40px; padding: 6px 4px; }
+.wbs-bar .wbs-top button:first-child { justify-self: start; }
+.wbs-bar button.wbs-all { justify-self: end; }
+.wbs-bar button.wbs-text[hidden], .wbs-bar button.wbs-secondary[hidden] { display: none; }
+.wbs-acts { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.wbs-acts.two { grid-template-columns: minmax(0, 1fr) auto; }
+.wbs-bar button.wbs-primary {
+  min-height: 52px; padding: 10px 16px; font-size: 1.0625rem; width: 100%;
+  background: var(--accent, var(--sky, #4BA3E3)); color: var(--on-accent, var(--navy, #0F2747)); border: 1px solid var(--sky-edge, #2E88CC);
+}
+.wbs-bar button.wbs-primary[data-state="done"] { background: #2D7D5C; border-color: #2D7D5C; color: #FFFFFF; }
+.wbs-bar button.wbs-primary[data-state="error"] { background: #A8432F; border-color: #A8432F; color: #FFFFFF; }
+.wbs-bar button.wbs-primary[data-state="ready"] { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, var(--sky, #4BA3E3)) 40%, transparent); }
+.wbs-bar button.wbs-secondary {
+  min-height: 52px; padding: 10px 16px; background: transparent; color: var(--ink, #1C2A3F); border: 1.5px solid var(--line-strong, #D8D3CA);
+}
+.wbs-bar button:disabled { opacity: .5; cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) { .wbs-bar { animation: none; } .wbs-thumb img, .wbs-check { transition: none; } }
